@@ -29,6 +29,9 @@
       "options": [
         "concrete",
         "red mud / moram",
+        "concrete + red mud",
+        "concrete + tar",
+        "concrete + tar + red mud",
         "tar (asphalt)",
         "paving blocks",
         "gravel",
@@ -36,7 +39,7 @@
         "mixed or broken"
       ],
       "road_attr": "surface",
-      "help": "Most colony roads here are concrete or red mud. Pick 'mixed' if it changes along the street."
+      "help": "Here only the highways are tar. Many streets mix concrete, tar and red mud: pick the mix, and say in 'Anything else' which part is which."
     },
     {
       "key": "edges",

@@ -47,6 +47,8 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 
 ## Lessons learned
 
+- 2026-10-30: owner: only highways are tar (ADB Road, road in front of ONGC); other roads are concrete, red mud or
+  mixes. Recorded per road in owner notes; survey gained mixed-surface options.
 - 2026-10-30: owner needed to pin a temple and a restaurant but the survey only covered streets; added places.
 - 2026-10-30: the wider + Place button shifted the map buttons under the attribution text. Added an overlap check.
 

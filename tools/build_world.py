@@ -297,6 +297,15 @@ def build(osm_path, lat0, lon0, radius, name):
     }
 
 
+def refresh_road_gaps(world):
+    """Recount road gaps from the current road data (call after anything changes road attributes)."""
+    g = world["gaps"]
+    for a in ROAD_SURVEY_ATTRS:
+        key = "width_m" if a == "width" else a
+        g[f"roads_without_{a}"] = sum(1 for r in world["roads"] if r[key]["value"] is None)
+    g["roads_without_name"] = sum(1 for r in world["roads"] if r["name"]["value"] is None)
+
+
 def apply_owner_notes(world, notes_path):
     """Merge owner survey notes. Every merged fact carries the survey source."""
     with open(notes_path) as f:
@@ -321,10 +330,28 @@ def apply_owner_notes(world, notes_path):
             unknown.append(aid)
     if unknown:
         raise SystemExit(f"owner notes refer to features not in this map: {unknown}")
+    if notes.get("road_attributes"):
+        with open(SURVEY_SCHEMA) as f:
+            fields = {fd["key"]: fd for fd in json.load(f)["fields"]}
+        problems = []
+        for rid, attrs in notes["road_attributes"].items():
+            if rid not in by_id:
+                problems.append(f"{rid}: no such road in this map")
+                continue
+            for key, value in attrs.items():
+                fd = fields.get(key)
+                if fd is None or not fd.get("road_attr"):
+                    problems.append(f"{rid}.{key}: not a road attribute")
+                    continue
+                _check_value(fd, value, f"{rid}.{key}", problems)
+                by_id[rid][fd["road_attr"]] = {"value": value, "source": src}
+        if problems:
+            raise SystemExit("owner notes rejected:\n  " + "\n  ".join(problems))
     for text in notes.get("area_notes", []):
         world["meta"].setdefault("area_notes", []).append({"value": text, "source": src})
     world["meta"].setdefault("surveys", []).append({"source": src, "note": notes.get("note", "")})
     world["colony_boundary"] = notes.get("colony_boundary")
+    refresh_road_gaps(world)
 
 
 def point_in_poly(x, y, pts):
@@ -522,10 +549,8 @@ def apply_street_survey(world, survey_path):
     world["pois"] = list(pois.values())
     note = f"survey: {len(survey.get('streets', {}))} streets, {len(survey.get('places', []))} places"
     world["meta"].setdefault("surveys", []).append({"source": src, "note": note})
+    refresh_road_gaps(world)
     g = world["gaps"]
-    for a in ROAD_SURVEY_ATTRS:
-        key = "width_m" if a == "width" else a
-        g[f"roads_without_{a}"] = sum(1 for r in world["roads"] if r[key]["value"] is None)
     g["roads_surveyed"] = sum(
         1
         for r in world["roads"]
