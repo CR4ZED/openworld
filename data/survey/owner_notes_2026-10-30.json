@@ -1,0 +1,25 @@
+{
+  "source": "survey:owner-2026-10-30",
+  "note": "Corrections from the project owner, who has lived in FCI Colony all their life. Reviewed against 2D map v0.1.",
+  "roads": {
+    "road-371759434": "Main highway (ADB Road).",
+    "road-852285466": "Main highway (ADB Road).",
+    "road-852285467": "Main highway (ADB Road).",
+    "road-852285468": "Main highway (ADB Road).",
+    "road-362423218": "Boundary road: Mahalakshmi Nagar (SBI Employees Colony) to the west, FCI Colony to the east.",
+    "road-362425739": "Road running north to ADB Road; ONGC is on its east side.",
+    "road-362423153": "Road running north to ADB Road; ONGC is on its east side."
+  },
+  "place_aliases": {
+    "poi-12496017019": "Mahalakshmi Nagar (SBI Employees Colony)"
+  },
+  "restricted_areas": {
+    "area-395577112": "ONGC site. Restricted: shown only as an off-limits area, never photographed or modelled."
+  },
+  "colony_boundary": {
+    "west": "road-362423218",
+    "north": "ADB Road (unconfirmed whether the colony reaches it)",
+    "east": "road-362425739 / road-362423153 (unconfirmed)",
+    "south": null
+  }
+}
