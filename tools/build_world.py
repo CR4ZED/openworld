@@ -12,8 +12,11 @@ Usage:
 """
 
 import argparse
+import glob
 import json
 import math
+import os
+import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from itertools import pairwise
@@ -294,6 +297,15 @@ def build(osm_path, lat0, lon0, radius, name):
     }
 
 
+def refresh_road_gaps(world):
+    """Recount road gaps from the current road data (call after anything changes road attributes)."""
+    g = world["gaps"]
+    for a in ROAD_SURVEY_ATTRS:
+        key = "width_m" if a == "width" else a
+        g[f"roads_without_{a}"] = sum(1 for r in world["roads"] if r[key]["value"] is None)
+    g["roads_without_name"] = sum(1 for r in world["roads"] if r["name"]["value"] is None)
+
+
 def apply_owner_notes(world, notes_path):
     """Merge owner survey notes. Every merged fact carries the survey source."""
     with open(notes_path) as f:
@@ -318,8 +330,28 @@ def apply_owner_notes(world, notes_path):
             unknown.append(aid)
     if unknown:
         raise SystemExit(f"owner notes refer to features not in this map: {unknown}")
+    if notes.get("road_attributes"):
+        with open(SURVEY_SCHEMA) as f:
+            fields = {fd["key"]: fd for fd in json.load(f)["fields"]}
+        problems = []
+        for rid, attrs in notes["road_attributes"].items():
+            if rid not in by_id:
+                problems.append(f"{rid}: no such road in this map")
+                continue
+            for key, value in attrs.items():
+                fd = fields.get(key)
+                if fd is None or not fd.get("road_attr"):
+                    problems.append(f"{rid}.{key}: not a road attribute")
+                    continue
+                _check_value(fd, value, f"{rid}.{key}", problems)
+                by_id[rid][fd["road_attr"]] = {"value": value, "source": src}
+        if problems:
+            raise SystemExit("owner notes rejected:\n  " + "\n  ".join(problems))
+    for text in notes.get("area_notes", []):
+        world["meta"].setdefault("area_notes", []).append({"value": text, "source": src})
     world["meta"].setdefault("surveys", []).append({"source": src, "note": notes.get("note", "")})
     world["colony_boundary"] = notes.get("colony_boundary")
+    refresh_road_gaps(world)
 
 
 def point_in_poly(x, y, pts):
@@ -388,8 +420,227 @@ def add_google_buildings(world, csv_path, lat0, lon0, radius):
     )
 
 
+SURVEY_SCHEMA = os.path.join(os.path.dirname(__file__), "..", "data", "survey", "street_survey_schema.json")
+
+
+class SurveyError(ValueError):
+    pass
+
+
+def _check_value(fd, value, where, problems, options=None):
+    """Append a problem if value doesn't fit field definition fd."""
+    if fd["type"] in ("number", "integer"):
+        kinds = (int,) if fd["type"] == "integer" else (int, float)
+        ok = not isinstance(value, bool) and isinstance(value, kinds)
+        if not ok or not fd["min"] <= value <= fd["max"]:
+            what = "whole number" if fd["type"] == "integer" else "number"
+            problems.append(f"{where}: {value!r} is not a {what} from {fd['min']} to {fd['max']}")
+    elif fd["type"] == "choice":
+        opts = options if options is not None else fd["options"]
+        if value not in opts:
+            problems.append(f"{where}: {value!r} is not one of {opts}")
+    elif fd["type"] == "text":
+        if not isinstance(value, str) or len(value) > fd["max_length"]:
+            problems.append(f"{where}: text too long or not text")
+
+
+def validate_street_survey(survey, road_ids, schema_path=SURVEY_SCHEMA, world=None):
+    """Check a street/place survey against the shared schema. Raises SurveyError listing every problem.
+    With `world`, places are also checked to lie inside the map and outside restricted areas."""
+    with open(schema_path) as f:
+        schema = json.load(f)
+    fields = {fd["key"]: fd for fd in schema["fields"]}
+    place_fields = {fd["key"]: fd for fd in schema["place_fields"]}
+    problems = []
+    if survey.get("format") != schema["format"]:
+        problems.append(f"format must be {schema['format']!r}, got {survey.get('format')!r}")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(survey.get("date", ""))):
+        problems.append("date must be YYYY-MM-DD")
+    if not re.fullmatch(r"[a-z0-9-]{1,40}", str(survey.get("surveyor", ""))):
+        problems.append("surveyor must be a short lowercase id, e.g. 'owner'")
+    streets = survey.get("streets", {})
+    places = survey.get("places", [])
+    if not isinstance(streets, dict):
+        problems.append("streets must be an object")
+        streets = {}
+    if not isinstance(places, list):
+        problems.append("places must be a list")
+        places = []
+    if not streets and not places:
+        problems.append("survey has no streets and no places")
+    for rid, entry in streets.items():
+        if rid not in road_ids:
+            problems.append(f"{rid}: no such road in this map")
+            continue
+        if not isinstance(entry, dict) or not entry:
+            problems.append(f"{rid}: empty entry")
+            continue
+        for key, value in entry.items():
+            if key not in fields:
+                problems.append(f"{rid}.{key}: unknown field")
+            else:
+                _check_value(fields[key], value, f"{rid}.{key}", problems)
+    seen = set()
+    for i, pl in enumerate(places):
+        where = f"place {i + 1}"
+        if not isinstance(pl, dict):
+            problems.append(f"{where}: not an object")
+            continue
+        pid = pl.get("id")
+        if not re.fullmatch(r"[a-z0-9-]{1,40}", str(pid)) or pid in seen:
+            problems.append(f"{where}: id must be a unique short lowercase id")
+        seen.add(pid)
+        for key in pl:
+            if key not in place_fields and key not in ("id", "lat", "lon"):
+                problems.append(f"{where}.{key}: unknown field")
+        if "type" not in pl:
+            problems.append(f"{where}: type is required")
+        for key, fd in place_fields.items():
+            if key in pl:
+                opts = schema[fd["options_from"]] if "options_from" in fd else None
+                _check_value(fd, pl[key], f"{where}.{key}", problems, opts)
+        lat, lon = pl.get("lat"), pl.get("lon")
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (lat, lon)):
+            problems.append(f"{where}: lat and lon must be numbers")
+        elif world is not None:
+            c = world["meta"]["center"]
+            x, y = local_xy(lat, lon, c["lat"], c["lon"])
+            if math.hypot(x, y) > world["meta"]["radius_m"]:
+                problems.append(f"{where}: outside the mapped area")
+            for a in world["areas"]:
+                if "restricted" in a and point_in_poly(x, y, a["points"]):
+                    problems.append(f"{where}: inside a restricted area; restricted sites are never mapped")
+    if problems:
+        raise SurveyError("survey rejected:\n  " + "\n  ".join(problems))
+    return fields
+
+
+def apply_street_survey(world, survey_path):
+    """Merge a validated survey. Core road attributes (width, surface, drain, footpath) get the survey as
+    their source; other street fields go under road['survey']; places become points of interest."""
+    with open(survey_path) as f:
+        survey = json.load(f)
+    roads = {r["id"]: r for r in world["roads"]}
+    fields = validate_street_survey(survey, set(roads), world=world)
+    with open(SURVEY_SCHEMA) as f:
+        sacred = set(json.load(f)["sacred_place_types"])
+    src = f"survey:{survey['surveyor']}-{survey['date']}"
+    for rid, entry in survey.get("streets", {}).items():
+        road = roads[rid]
+        for key, value in entry.items():
+            attr_name = fields[key].get("road_attr")
+            if attr_name:
+                road[attr_name] = {"value": value, "source": src}
+            else:
+                road.setdefault("survey", {})[key] = {"value": value, "source": src}
+    c = world["meta"]["center"]
+    pois = {p["id"]: p for p in world["pois"]}
+    for pl in survey.get("places", []):
+        poi = {
+            "id": f"poi-survey-{pl['id']}",
+            "source": src,
+            "kind": f"survey:{pl['type']}",
+            "name": attr(pl.get("name") or None, src if pl.get("name") else None),
+            "note": attr(pl.get("note") or None, src if pl.get("note") else None),
+            "sacred": pl["type"] in sacred,
+            "point": list(local_xy(pl["lat"], pl["lon"], c["lat"], c["lon"])),
+        }
+        pois[poi["id"]] = poi  # a later survey of the same place replaces it
+    world["pois"] = list(pois.values())
+    note = f"survey: {len(survey.get('streets', {}))} streets, {len(survey.get('places', []))} places"
+    world["meta"].setdefault("surveys", []).append({"source": src, "note": note})
+    refresh_road_gaps(world)
+    g = world["gaps"]
+    g["roads_surveyed"] = sum(
+        1
+        for r in world["roads"]
+        if any(
+            (r[k]["source"] or "").startswith("survey:") for k in ("width_m", "surface", "drain", "footpath")
+        )
+        or "survey" in r
+    )
+    g["places_surveyed"] = sum(1 for p in world["pois"] if p["source"].startswith("survey:"))
+
+
+def check_widths_against_buildings(world, max_side_m=40.0, step_m=5.0, cell=20.0):
+    """Cross-check surveyed widths with building outlines (an independent source).
+
+    Along each road with a known width, measure the distance to the nearest building on each side and
+    add them: that gap is an upper bound for the road width where buildings stand on both sides.
+    Adds road['width_check'] = {gap_median_m, gap_p10_m, samples, ok}. ok is False when the width is
+    wider than the median gap, which means the width or the map needs re-checking. Never changes widths.
+    """
+    grid = {}
+    for a in world["areas"]:
+        if a["kind"] != "building":
+            continue
+        pts = a["points"]
+        for i in range(len(pts)):
+            e = (pts[i - 1], pts[i])
+            for gx in range(int(min(e[0][0], e[1][0]) // cell), int(max(e[0][0], e[1][0]) // cell) + 1):
+                for gy in range(int(min(e[0][1], e[1][1]) // cell), int(max(e[0][1], e[1][1]) // cell) + 1):
+                    grid.setdefault((gx, gy), []).append(e)
+    reach = int(max_side_m // cell) + 1
+
+    def nearest(p, ux, uy):
+        left = right = None
+        gx, gy = int(p[0] // cell), int(p[1] // cell)
+        for i in range(gx - reach, gx + reach + 1):
+            for j in range(gy - reach, gy + reach + 1):
+                for a, b in grid.get((i, j), ()):
+                    dx, dy = b[0] - a[0], b[1] - a[1]
+                    t = max(
+                        0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / ((dx * dx + dy * dy) or 1))
+                    )
+                    q = (a[0] + t * dx, a[1] + t * dy)
+                    d = math.dist(p, q)
+                    if d > max_side_m:
+                        continue
+                    if ux * (q[1] - p[1]) - uy * (q[0] - p[0]) > 0:
+                        left = d if left is None else min(left, d)
+                    else:
+                        right = d if right is None else min(right, d)
+        return left, right
+
+    flagged = 0
+    for r in world["roads"]:
+        width = r["width_m"]["value"]
+        if width is None:
+            continue
+        gaps = []
+        for part in r["parts"]:
+            for a, b in pairwise(part):
+                length = math.dist(a, b)
+                if length == 0:
+                    continue
+                ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+                n = max(1, int(length // step_m))
+                for k in range(n):
+                    p = (a[0] + ux * length * k / n, a[1] + uy * length * k / n)
+                    left, right = nearest(p, ux, uy)
+                    if left is not None and right is not None:
+                        gaps.append(left + right)
+        if not gaps:
+            r["width_check"] = {"samples": 0, "ok": None}
+            continue
+        gaps.sort()
+        median, p10 = gaps[len(gaps) // 2], gaps[len(gaps) // 10]
+        ok = width <= median
+        flagged += not ok
+        r["width_check"] = {
+            "gap_median_m": round(median, 1),
+            "gap_p10_m": round(p10, 1),
+            "samples": len(gaps),
+            "ok": ok,
+            "source": "open-buildings:google-v3",
+        }
+    world["gaps"]["roads_width_to_recheck"] = flagged
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--street-survey", action="append", default=[], help="street survey JSON (repeatable)")
+    ap.add_argument("--survey-dir", help="also load every streets_*.json in this folder, oldest first")
     ap.add_argument("--google-buildings", help="Google Open Buildings CSV already filtered to the area")
     ap.add_argument("--notes", action="append", default=[], help="owner survey notes JSON (repeatable)")
     ap.add_argument("--osm", required=True)
@@ -404,6 +655,18 @@ def main():
         apply_owner_notes(world, n)
     if a.google_buildings:
         add_google_buildings(world, a.google_buildings, a.lat, a.lon, a.radius)
+    surveys = list(a.street_survey)
+    if a.survey_dir:
+        surveys += sorted(glob.glob(os.path.join(a.survey_dir, "streets_*.json")))
+    for sv in surveys:  # later surveys override earlier ones for the same field
+        apply_street_survey(world, sv)
+        print(f"applied street survey {sv}")
+    check_widths_against_buildings(world)
+    for r in world["roads"]:
+        c = r.get("width_check")
+        if c and c["ok"] is False:
+            w_m, gap = r["width_m"]["value"], c["gap_median_m"]
+            print(f"WARNING {r['id']}: surveyed {w_m} m but buildings are ~{gap} m apart")
     with open(a.out, "w") as f:
         json.dump(world, f, ensure_ascii=False, separators=(",", ":"))
     print(json.dumps(world["gaps"], indent=1))

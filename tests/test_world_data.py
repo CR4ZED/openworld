@@ -62,6 +62,27 @@ class WorldDataTests(unittest.TestCase):
                 if k in f:
                     self.assertTrue(f[k]["source"].startswith("survey:"), f["id"])
 
+    def test_area_notes_are_owner_sourced(self):
+        for n in self.w["meta"].get("area_notes", []):
+            self.assertTrue(n["source"].startswith("survey:"), n)
+
+    def test_area_notes_never_fill_road_attributes(self):
+        """An area-wide remark is not a per-street measurement: surfaces stay unknown unless surveyed."""
+        for r in self.w["roads"]:
+            src = r["surface"]["source"]
+            if src is not None:
+                self.assertTrue(src.startswith(("osm:", "survey:")), r["id"])
+
+    def test_owner_stated_tar_roads(self):
+        """Owner 2026-10-30: only the highways are tar (ADB Road, road in front of ONGC)."""
+        tar = [r for r in self.w["roads"] if r["surface"]["value"] == "tar (asphalt)"]
+        self.assertTrue(tar)
+        for r in tar:
+            self.assertIn(r["osm_class"], ("primary", "secondary", "tertiary"), r["id"])
+            self.assertTrue(r["surface"]["source"].startswith("survey:owner-"), r["id"])
+        adb = [r for r in self.w["roads"] if r["name"]["value"] and "ADB" in r["name"]["value"]]
+        self.assertTrue(adb and all(r["surface"]["value"] == "tar (asphalt)" for r in adb))
+
     def test_restricted_areas_have_no_building_detail(self):
         """Sensitive sites (e.g. ONGC) must never carry modelled detail."""
         for a in self.w["areas"]:
@@ -119,9 +140,17 @@ class WorldDataTests(unittest.TestCase):
     def test_gap_counts_match_data(self):
         g = self.w["gaps"]
         self.assertEqual(g["roads_total"], len(self.w["roads"]))
-        self.assertEqual(
-            g["roads_without_width"], sum(1 for r in self.w["roads"] if r["width_m"]["value"] is None)
-        )
+        for attr, key in (
+            ("width", "width_m"),
+            ("surface", "surface"),
+            ("drain", "drain"),
+            ("footpath", "footpath"),
+        ):
+            self.assertEqual(
+                g[f"roads_without_{attr}"],
+                sum(1 for r in self.w["roads"] if r[key]["value"] is None),
+                f"gap count for {attr} is stale",
+            )
 
 
 if __name__ == "__main__":

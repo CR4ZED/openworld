@@ -21,5 +21,29 @@
     "north": "ADB Road (unconfirmed whether the colony reaches it)",
     "east": "road-362425739 / road-362423153 (unconfirmed)",
     "south": null
+  },
+  "area_notes": [
+    "Only the highways are tar: the ADB Road and the road in front of ONGC.",
+    "Other roads are concrete (CC), red mud (moram), or a mix: some concrete + tar + red mud, some red mud + concrete. Use as the look for roads not yet surveyed; per-street surveys always win."
+  ],
+  "road_attributes": {
+    "road-371759434": {
+      "surface": "tar (asphalt)"
+    },
+    "road-852285466": {
+      "surface": "tar (asphalt)"
+    },
+    "road-852285467": {
+      "surface": "tar (asphalt)"
+    },
+    "road-852285468": {
+      "surface": "tar (asphalt)"
+    },
+    "road-362425739": {
+      "surface": "tar (asphalt)"
+    },
+    "road-362423153": {
+      "surface": "tar (asphalt)"
+    }
   }
 }

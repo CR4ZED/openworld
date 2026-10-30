@@ -1,0 +1,244 @@
+{
+  "format": "openworld-street-survey/1",
+  "about": "Fields of the street and place survey. Shared by the phone form (viewer/survey.js) and the importer (tools/build_world.py). Every field is optional except a place's type: leave anything you are unsure about empty.",
+  "fields": [
+    {
+      "key": "width_m",
+      "label": "Road width (metres)",
+      "help": "Usable width between walls, or between the edges of the road if there are no walls.",
+      "type": "number",
+      "min": 1.5,
+      "max": 40,
+      "step": 0.1,
+      "road_attr": "width_m"
+    },
+    {
+      "key": "width_method",
+      "label": "How was the width measured?",
+      "type": "choice",
+      "options": [
+        "tape",
+        "pacing",
+        "estimate"
+      ]
+    },
+    {
+      "key": "surface",
+      "label": "Surface",
+      "type": "choice",
+      "options": [
+        "concrete",
+        "red mud / moram",
+        "concrete + red mud",
+        "concrete + tar",
+        "concrete + tar + red mud",
+        "tar (asphalt)",
+        "paving blocks",
+        "gravel",
+        "mud",
+        "mixed or broken"
+      ],
+      "road_attr": "surface",
+      "help": "Here only the highways are tar. Many streets mix concrete, tar and red mud: pick the mix, and say in 'Anything else' which part is which."
+    },
+    {
+      "key": "edges",
+      "label": "Road edges",
+      "type": "choice",
+      "options": [
+        "compound walls",
+        "mud shoulder",
+        "kerb",
+        "open land",
+        "mixed"
+      ]
+    },
+    {
+      "key": "drain",
+      "label": "Drain",
+      "type": "choice",
+      "options": [
+        "none",
+        "open, one side",
+        "open, both sides",
+        "covered, one side",
+        "covered, both sides",
+        "mixed"
+      ],
+      "road_attr": "drain"
+    },
+    {
+      "key": "footpath",
+      "label": "Footpath",
+      "type": "choice",
+      "options": [
+        "none",
+        "one side",
+        "both sides"
+      ],
+      "road_attr": "footpath"
+    },
+    {
+      "key": "street_lights",
+      "label": "Street lights",
+      "type": "choice",
+      "options": [
+        "none",
+        "few",
+        "regular"
+      ]
+    },
+    {
+      "key": "electric_poles",
+      "label": "Electric poles",
+      "type": "choice",
+      "options": [
+        "none",
+        "one side",
+        "both sides"
+      ]
+    },
+    {
+      "key": "speed_breakers",
+      "label": "Speed breakers (count)",
+      "type": "integer",
+      "min": 0,
+      "max": 30
+    },
+    {
+      "key": "potholes",
+      "label": "Potholes",
+      "type": "choice",
+      "options": [
+        "none",
+        "some",
+        "many"
+      ]
+    },
+    {
+      "key": "water_logging",
+      "label": "Water-logging in rain",
+      "type": "choice",
+      "options": [
+        "no",
+        "sometimes",
+        "often"
+      ]
+    },
+    {
+      "key": "trees",
+      "label": "Trees along the road",
+      "type": "choice",
+      "options": [
+        "none",
+        "few",
+        "many"
+      ]
+    },
+    {
+      "key": "garbage",
+      "label": "Garbage on this street",
+      "help": "Loose litter, heaps by the roadside, or a regular dump spot (pin a dump spot with + Place).",
+      "type": "choice",
+      "options": [
+        "none",
+        "some litter",
+        "heaps in places",
+        "regular dump spot"
+      ]
+    },
+    {
+      "key": "stray_animals",
+      "label": "Stray animals",
+      "help": "Dogs, cows, buffaloes, goats, pigs usually seen here.",
+      "type": "choice",
+      "options": [
+        "none",
+        "few",
+        "many"
+      ]
+    },
+    {
+      "key": "shops_stalls",
+      "label": "Shops and stalls",
+      "help": "Kirana stores, tea stalls, tiffin centres, carts.",
+      "type": "choice",
+      "options": [
+        "none",
+        "few",
+        "many"
+      ]
+    },
+    {
+      "key": "notes",
+      "label": "Anything else",
+      "help": "Shops, temple, school, cows usually here, cricket in the evening...",
+      "type": "text",
+      "max_length": 1000
+    },
+    {
+      "key": "photos",
+      "label": "Photo names",
+      "help": "File names of the photos you will send (no faces or number plates).",
+      "type": "text",
+      "max_length": 500
+    }
+  ],
+  "place_types": [
+    "temple",
+    "mosque",
+    "church",
+    "restaurant",
+    "tea stall",
+    "tiffin centre",
+    "kirana / general store",
+    "shop",
+    "medical shop",
+    "clinic or hospital",
+    "school",
+    "college",
+    "bank or ATM",
+    "bus stop",
+    "auto stand",
+    "water tank",
+    "community hall",
+    "park or ground",
+    "market",
+    "petrol bunk",
+    "roadside shrine",
+    "pan shop",
+    "garbage dump spot",
+    "fruit / vegetable cart",
+    "cattle shed",
+    "other"
+  ],
+  "sacred_place_types": [
+    "church",
+    "mosque",
+    "roadside shrine",
+    "temple"
+  ],
+  "place_fields": [
+    {
+      "key": "type",
+      "label": "What is here?",
+      "type": "choice",
+      "options_from": "place_types",
+      "required": true
+    },
+    {
+      "key": "name",
+      "label": "Name (optional)",
+      "help": "Real name for our records. Businesses get a made-up name in the game.",
+      "type": "text",
+      "max_length": 120
+    },
+    {
+      "key": "note",
+      "label": "Note (optional)",
+      "help": "Which side of the road, how big, opening hours, crowd...",
+      "type": "text",
+      "max_length": 500
+    }
+  ]
+}
