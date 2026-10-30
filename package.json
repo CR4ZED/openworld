@@ -11,9 +11,19 @@
     "test:data": "python3 -m unittest discover -s tests -v",
     "test:e2e": "node tests/e2e_map.mjs viewer/dist/fci_colony_map.html test-results",
     "test": "npm run build && npm run test:data && npm run test:e2e",
-    "fetch": "bash tools/fetch_data.sh"
+    "fetch": "bash tools/fetch_data.sh",
+    "lint": "npm run lint:py && npm run lint:js && npm run format:check && npm run lint:sh",
+    "lint:py": "ruff check . && ruff format --check .",
+    "lint:js": "eslint .",
+    "lint:sh": "shellcheck tools/*.sh",
+    "format:check": "prettier --check .",
+    "format": "ruff format . && ruff check --fix . && prettier --write ."
   },
   "devDependencies": {
-    "playwright": "^1.50.0"
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0",
+    "playwright": "1.63.0",
+    "prettier": "^3.9.10"
   }
 }

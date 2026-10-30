@@ -7,6 +7,7 @@ Living documents kept in Claude (owner access):
 - 2D map (latest build): https://claude.ai/artifact/4JojChQnjstGmU46YNsXju
 
 ## Survey status (FCI Colony)
+
 - 2026-10-30: 2D map v0.3 approved by owner. Boundary: west = road-362423218 (Mahalakshmi Nagar on the west).
   ONGC east of road-362425739/362423153 is restricted. South boundary: open question.
 - Next: street survey of 3–5 streets (width, surface, drain, footpath, photos without faces or plates).

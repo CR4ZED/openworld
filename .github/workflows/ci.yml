@@ -1,11 +1,39 @@
 name: checks
 
+# Runs on every pull request and every push to main.
+# Two required checks: "lint" (code rules and formatting) and "test" (build + data + browser tests).
 on:
   push:
     branches: [main]
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r requirements-dev.txt
+      - run: npm ci
+      - name: Python lint and format (ruff)
+        run: npm run lint:py
+      - name: JavaScript lint (eslint)
+        run: npm run lint:js
+      - name: Formatting (prettier)
+        run: npm run format:check
+      - name: Shell scripts (shellcheck)
+        run: npm run lint:sh
+      - name: Workflow files (actionlint)
+        run: |
+          bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -17,7 +45,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install
+      - run: npm ci
       - run: npx playwright install --with-deps chromium
       - name: Build world data and map
         run: npm run build

@@ -1,314 +1,863 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<title>__TITLE__</title>
-<style>
-  :root {
-    --bg: #f7f4ec; --ink: #1f2328; --quiet: #5f6670; --line: #d9d3c4; --panel: #ffffff;
-    --accent: #1d6fd8; --gap: #c2410c; --ok: #15803d;
-    --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
-    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
-  header { position: absolute; top: 0; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 10px;
-    padding: calc(10px + var(--safe-top)) 14px 10px; background: rgba(255,255,255,.94); border-bottom: 1px solid var(--line); }
-  header h1 { font-size: 15px; margin: 0; font-weight: 650; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  header .ver { color: var(--quiet); font-weight: 400; }
-  button { font: inherit; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px;
-    padding: 7px 11px; cursor: pointer; }
-  button:active { background: #eef2f7; }
-  #map { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
-  #controls { position: absolute; right: 12px; bottom: calc(18px + var(--safe-bottom)); z-index: 3; display: flex; flex-direction: column; gap: 6px; }
-  #controls button { width: 42px; height: 42px; padding: 0; font-size: 20px; line-height: 1; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-  #scale { position: absolute; left: 12px; bottom: calc(14px + var(--safe-bottom)); z-index: 3; font-size: 12px; color: var(--quiet); }
-  #scale .bar { height: 6px; border: 2px solid var(--ink); border-top: none; margin-bottom: 3px; }
-  #attrib { position: absolute; right: 64px; left: 110px; text-align: right; bottom: calc(14px + var(--safe-bottom)); z-index: 3; font-size: 11px; color: var(--quiet);
-    background: rgba(255,255,255,.8); padding: 2px 6px; border-radius: 4px; }
-  #attrib a { color: var(--quiet); }
-  .sheet { position: absolute; z-index: 4; left: 12px; right: 12px; bottom: calc(70px + var(--safe-bottom)); max-width: 420px;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.12);
-    padding: 14px 16px; display: none; max-height: 60vh; overflow: auto; }
-  .sheet.open { display: block; }
-  .sheet h2 { font-size: 16px; margin: 0 28px 2px 0; }
-  .sheet .sub { color: var(--quiet); font-size: 12.5px; margin-bottom: 10px; }
-  .sheet .close { position: absolute; top: 10px; right: 10px; border: none; font-size: 18px; padding: 2px 8px; }
-  .sheet table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-  .sheet td { padding: 6px 0; border-top: 1px solid #eee; vertical-align: top; }
-  .sheet td:first-child { color: var(--quiet); width: 38%; }
-  .unknown { color: var(--gap); font-weight: 600; }
-  .known { color: var(--ok); font-weight: 600; }
-  .src { color: var(--quiet); font-size: 12px; }
-  .legend-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 13px; }
-  .legend-row svg { flex: none; }
-  .stat { display: flex; justify-content: space-between; padding: 5px 0; border-top: 1px solid #eee; font-size: 13.5px; }
-  .note { font-size: 12.5px; color: var(--quiet); margin-top: 10px; }
-  @media (min-width: 720px) { .sheet { left: auto; right: 64px; bottom: 24px; top: calc(64px + var(--safe-top)); max-height: none; width: 380px; } }
-</style>
-</head>
-<body>
-<header>
-  <h1>__TITLE__ <span class="ver">· 2D map v0.3</span></h1>
-  <button id="btnGaps" aria-label="Survey gaps">Gaps</button>
-  <button id="btnLegend" aria-label="Legend">Legend</button>
-</header>
-<svg id="map" xmlns="http://www.w3.org/2000/svg" aria-label="2D map of the area">
-  <defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="24" height="24" patternTransform="rotate(45)">
-    <rect width="24" height="24" fill="#efe3e3"/><line x1="0" y1="0" x2="0" y2="24" stroke="#c98b8b" stroke-width="7"/></pattern></defs>
-  <g id="world"></g>
-  <g id="labels"></g>
-</svg>
-<div id="controls">
-  <button id="zin" aria-label="Zoom in">+</button>
-  <button id="zout" aria-label="Zoom out">&minus;</button>
-  <button id="home" aria-label="Reset view" style="font-size:15px">&#8982;</button>
-</div>
-<div id="scale"><div class="bar"></div><span></span></div>
-<div id="attrib">Roads &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL) &middot; Buildings: <a href="https://sites.research.google/gr/open-buildings/" target="_blank" rel="noopener">Google Open Buildings</a> (CC BY 4.0)</div>
-<div class="sheet" id="sheet"><button class="close" id="sheetClose" aria-label="Close">&times;</button><div id="sheetBody"></div></div>
-
-<script id="world-data" type="application/json">__WORLD_JSON__</script>
-<script>
-(() => {
-  const W = JSON.parse(document.getElementById('world-data').textContent);
-  const NS = 'http://www.w3.org/2000/svg';
-  const svg = document.getElementById('map'), gWorld = document.getElementById('world'), gLabels = document.getElementById('labels');
-  const R = W.meta.radius_m;
-
-  const ROAD_STYLE = {
-    motorway: ['#c0392b', 6], trunk: ['#c0392b', 6], primary: ['#d6604d', 5], secondary: ['#e3a13b', 4.2],
-    tertiary: ['#e3a13b', 3.4], unclassified: ['#5b6169', 2.6], residential: ['#5b6169', 2.1],
-    living_street: ['#5b6169', 2.1], service: ['#9aa0a6', 1.4], track: ['#9a7b4f', 1.4, '5 4'], path: ['#9a7b4f', 1.2, '2 3'],
-    footway: ['#9a7b4f', 1.2, '2 3'], pedestrian: ['#9a7b4f', 1.6], cycleway: ['#2f7d5b', 1.2, '2 3']
-  };
-  const AREA_STYLE = k => k === 'building' ? ['#c9b8a6', '#9c8670']
-    : k === 'landuse:industrial' ? ['#e6dde9', 'none']
-    : k.startsWith('landuse:') ? ['#f1ece0', 'none']
-    : k.startsWith('leisure:') || k.startsWith('natural:') ? ['#dcebd3', 'none'] : ['#e9e4d8', 'none'];
-
-  const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
-  const pathD = pts => pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + (-p[1])).join('');
-  const len = parts => parts.reduce((s, pts) => s + pts.slice(1).reduce((a, p, i) => a + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0), 0);
-
-  // ---- draw world (world units = metres, y flipped so north is up) ----
-  const byId = {};
-  const layerAreas = el('g', {}, gWorld), layerLines = el('g', {}, gWorld), layerRoads = el('g', {}, gWorld),
-        layerHits = el('g', {}, gWorld), layerSel = el('g', {}, gWorld), layerPois = el('g', {}, gWorld);
-
-  // land use first (big), then buildings on top
-  const areas = [...W.areas].sort((a, b) => (a.kind === 'building') - (b.kind === 'building'));
-  for (const a of areas) {
-    const [fill0, stroke0] = AREA_STYLE(a.kind);
-    const low = a.confidence && a.confidence.value < 0.75;
-    const fill = a.restricted ? 'url(#hatch)' : (low ? '#e3d8cb' : fill0), stroke = a.restricted ? '#b45454' : stroke0;
-    const p = el('path', { d: pathD(a.points) + 'Z', fill, stroke, 'stroke-width': low ? 0.8 : 0.6, 'stroke-dasharray': low ? '2 2' : '',
-      'vector-effect': 'non-scaling-stroke', 'data-id': a.id }, layerAreas);
-    if (a.kind === 'building' || a.restricted) { p.style.cursor = 'pointer'; }
-    byId[a.id] = { f: a, type: 'area', node: p };
-  }
-  for (const l of W.lines) {
-    const water = l.kind.startsWith('waterway');
-    for (const pts of l.parts) el('path', { d: pathD(pts), fill: 'none', stroke: water ? '#3b82c4' : '#8a5cc2',
-      'stroke-width': water ? 1.8 : 1.1, 'stroke-dasharray': water ? '' : '7 4', 'vector-effect': 'non-scaling-stroke' }, layerLines);
-    byId[l.id] = { f: l, type: 'line' };
-  }
-  const order = ['service', 'track', 'path', 'footway', 'residential', 'living_street', 'unclassified', 'tertiary', 'secondary', 'primary', 'trunk', 'motorway'];
-  const roads = [...W.roads].sort((a, b) => order.indexOf(a.osm_class) - order.indexOf(b.osm_class));
-  for (const r of roads) {
-    const [col, w, dash] = ROAD_STYLE[r.osm_class] || ['#7a7f87', 1.5];
-    const d = r.parts.map(pathD).join('');
-    el('path', { d, fill: 'none', stroke: col, 'stroke-width': w, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
-      'stroke-dasharray': dash || '', 'vector-effect': 'non-scaling-stroke' }, layerRoads);
-    const hit = el('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 16, 'vector-effect': 'non-scaling-stroke',
-      'pointer-events': 'stroke', 'data-id': r.id }, layerHits);
-    hit.style.cursor = 'pointer';
-    byId[r.id] = { f: r, type: 'road', d };
-  }
-  const layerOwner = el('g', {}, gWorld);
-  for (const r of W.roads) if (r.notes && r.osm_class !== 'primary') {
-    el('path', { d: r.parts.map(pathD).join(''), fill: 'none', stroke: '#1d6fd8', 'stroke-width': 2, 'stroke-dasharray': '1 7',
-      'stroke-linecap': 'round', 'vector-effect': 'non-scaling-stroke', 'pointer-events': 'none', transform: '' }, layerOwner);
-  }
-  gWorld.insertBefore(layerOwner, layerHits);
-  // outside-the-radius veil + boundary circle
-  const big = R * 4;
-  el('path', { d: `M${-big} ${-big}H${big}V${big}H${-big}Z M${R} 0A${R} ${R} 0 1 0 ${-R} 0A${R} ${R} 0 1 0 ${R} 0Z`,
-    fill: 'rgba(247,244,236,0.72)', 'fill-rule': 'evenodd', 'pointer-events': 'none' }, gWorld);
-  el('circle', { cx: 0, cy: 0, r: R, fill: 'none', stroke: '#8b8577', 'stroke-width': 1.2, 'stroke-dasharray': '6 5',
-    'vector-effect': 'non-scaling-stroke', 'pointer-events': 'none' }, gWorld);
-
-  // ---- labels (screen space so text never scales or flips) ----
-  const labelItems = [];
-  const placeKinds = ['place:suburb', 'place:neighbourhood'];
-  for (const p of W.pois) {
-    const isPlace = placeKinds.includes(p.kind), isTower = p.kind === 'power:tower';
-    byId[p.id] = { f: p, type: 'poi' };
-    labelItems.push({ p, isPlace, isTower });
-  }
-  for (const a of W.areas) if (a.restricted) {
-    // label at the most interior point of the area that lies inside the circle (keeps it off roads and edges)
-    const pts = a.points, inside = (x, y) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-      const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
-    const segDist = (x, y) => { let m = Infinity; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-      const [ax, ay] = pts[j], [bx, by] = pts[i], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy || 1;
-      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L)); m = Math.min(m, Math.hypot(x - ax - t * dx, y - ay - t * dy)); } return m; };
-    const roadDist = (x, y) => Math.min(...W.roads.filter(r => r.osm_class === 'primary').flatMap(r => r.parts.flat()).map(p => Math.hypot(p[0] - x, p[1] - y)));
-    let best = null;
-    for (let x = -R; x <= R; x += 25) for (let y = -R; y <= R; y += 25) {
-      if (Math.hypot(x, y) > R * 0.92 || !inside(x, y)) continue;
-      const sc = Math.min(segDist(x, y), roadDist(x, y));
-      if (!best || sc > best[2]) best = [x, y, sc];
-    }
-    if (best) labelItems.push({ restricted: a, at: [best[0], best[1]] });
-  }
-  // main named roads get a label at their midpoint
-  const bestByName = {};
-  for (const r of W.roads) if (r.name.value) {
-    const L = len(r.parts);
-    if (!bestByName[r.name.value] || L > bestByName[r.name.value].L) bestByName[r.name.value] = { r, L };
-  }
-  for (const { r } of Object.values(bestByName)) {
-    const pts = r.parts.reduce((a, b) => (len([b]) > len([a]) ? b : a));
-    labelItems.push({ road: r, at: pts[Math.floor(pts.length / 2)] });
-  }
-
-  // ---- camera ----
-  let cam = { x: 0, y: 0, s: 1 };
-  const headerH = () => document.querySelector('header').getBoundingClientRect().height;
-  const size = () => { const r = svg.getBoundingClientRect(); return { w: r.width, h: r.height, top: headerH() }; };
-  const fit = () => { const { w, h, top } = size(); cam = { x: 0, y: 0, s: Math.min(w - 24, h - top - 70) / (2 * R * 1.04) }; };
-  const midY = () => { const { h, top } = size(); return top + (h - top) / 2; };
-  const toScreen = (x, y) => { const { w } = size(); return [w / 2 + (x - cam.x) * cam.s, midY() - (y - cam.y) * cam.s]; };
-  const toWorld = (sx, sy) => { const { w } = size(); return [cam.x + (sx - w / 2) / cam.s, cam.y - (sy - midY()) / cam.s]; };
-
-  function render() {
-    const { w, h } = size();
-    gWorld.setAttribute('transform', `translate(${w / 2} ${midY()}) scale(${cam.s}) translate(${-cam.x} ${cam.y})`);
-    gLabels.textContent = '';
-    for (const it of labelItems) {
-      if (it.restricted) {
-        const [sx, sy] = toScreen(it.at[0], it.at[1]);
-        const t = el('text', { x: sx, y: sy, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 650, fill: '#8f2f2f',
-          stroke: '#f7f4ec', 'stroke-width': 3, 'paint-order': 'stroke', 'pointer-events': 'none' }, gLabels);
-        t.textContent = 'ONGC · restricted'; continue;
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
+    <title>__TITLE__</title>
+    <style>
+      :root {
+        --bg: #f7f4ec;
+        --ink: #1f2328;
+        --quiet: #5f6670;
+        --line: #d9d3c4;
+        --panel: #ffffff;
+        --accent: #1d6fd8;
+        --gap: #c2410c;
+        --ok: #15803d;
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
       }
-      if (it.road) {
-        const [sx, sy] = toScreen(it.at[0], it.at[1]);
-        const t = el('text', { x: sx, y: sy - 8, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 600, fill: '#7a2e22',
-          stroke: '#f7f4ec', 'stroke-width': 3, 'paint-order': 'stroke' }, gLabels);
-        t.textContent = it.road.name.value; continue;
+      * {
+        box-sizing: border-box;
       }
-      const [sx, sy] = toScreen(it.p.point[0], it.p.point[1]);
-      if (it.isTower) { if (cam.s > 0.6) el('rect', { x: sx - 2.5, y: sy - 2.5, width: 5, height: 5, fill: '#8a5cc2' }, gLabels); continue; }
-      if (it.isPlace) {
-        const t = el('text', { x: sx, y: sy, 'text-anchor': 'middle', 'font-size': it.p.kind === 'place:suburb' ? 13 : 11.5,
-          'font-style': 'italic', 'letter-spacing': '.04em', fill: '#4b5160', stroke: '#f7f4ec', 'stroke-width': 3, 'paint-order': 'stroke', 'pointer-events': 'none' }, gLabels);
-        t.textContent = (it.p.alias && it.p.alias.value) || it.p.name.value || '';
-        continue;
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          14px/1.4 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        overflow: hidden;
       }
-      const g = el('g', { 'data-id': it.p.id }, gLabels); g.style.cursor = 'pointer';
-      el('circle', { cx: sx, cy: sy, r: 6, fill: '#1d6fd8', stroke: '#fff', 'stroke-width': 2 }, g);
-      const t = el('text', { x: sx + 9, y: sy + 4, 'font-size': 12, fill: '#1f2328', stroke: '#f7f4ec', 'stroke-width': 3, 'paint-order': 'stroke' }, g);
-      t.textContent = it.p.name.value || it.p.kind.split(':')[1].replace(/_/g, ' ');
-    }
-    // centre pin
-    const [cx, cy] = toScreen(0, 0);
-    const pin = el('g', { 'pointer-events': 'none' }, gLabels);
-    el('path', { d: `M${cx} ${cy}c-6 -9 -10 -13 -10 -19a10 10 0 0 1 20 0c0 6 -4 10 -10 19z`, fill: '#e11d48', stroke: '#fff', 'stroke-width': 2 }, pin);
-    el('circle', { cx, cy: cy - 19, r: 3.5, fill: '#fff' }, pin);
-    // scale bar
-    const target = 110 / cam.s, pow = Math.pow(10, Math.floor(Math.log10(target)));
-    const nice = [1, 2, 5, 10].map(m => m * pow).reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
-    document.querySelector('#scale .bar').style.width = (nice * cam.s) + 'px';
-    document.querySelector('#scale span').textContent = nice >= 1000 ? (nice / 1000) + ' km' : nice + ' m';
-  }
+      header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: calc(10px + var(--safe-top)) 14px 10px;
+        background: rgba(255, 255, 255, 0.94);
+        border-bottom: 1px solid var(--line);
+      }
+      header h1 {
+        font-size: 15px;
+        margin: 0;
+        font-weight: 650;
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      header .ver {
+        color: var(--quiet);
+        font-weight: 400;
+      }
+      button {
+        font: inherit;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        border-radius: 8px;
+        padding: 7px 11px;
+        cursor: pointer;
+      }
+      button:active {
+        background: #eef2f7;
+      }
+      #map {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+        display: block;
+      }
+      #controls {
+        position: absolute;
+        right: 12px;
+        bottom: calc(18px + var(--safe-bottom));
+        z-index: 3;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      #controls button {
+        width: 42px;
+        height: 42px;
+        padding: 0;
+        font-size: 20px;
+        line-height: 1;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      #scale {
+        position: absolute;
+        left: 12px;
+        bottom: calc(14px + var(--safe-bottom));
+        z-index: 3;
+        font-size: 12px;
+        color: var(--quiet);
+      }
+      #scale .bar {
+        height: 6px;
+        border: 2px solid var(--ink);
+        border-top: none;
+        margin-bottom: 3px;
+      }
+      #attrib {
+        position: absolute;
+        right: 64px;
+        left: 110px;
+        text-align: right;
+        bottom: calc(14px + var(--safe-bottom));
+        z-index: 3;
+        font-size: 11px;
+        color: var(--quiet);
+        background: rgba(255, 255, 255, 0.8);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      #attrib a {
+        color: var(--quiet);
+      }
+      .sheet {
+        position: absolute;
+        z-index: 4;
+        left: 12px;
+        right: 12px;
+        bottom: calc(70px + var(--safe-bottom));
+        max-width: 420px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+        padding: 14px 16px;
+        display: none;
+        max-height: 60vh;
+        overflow: auto;
+      }
+      .sheet.open {
+        display: block;
+      }
+      .sheet h2 {
+        font-size: 16px;
+        margin: 0 28px 2px 0;
+      }
+      .sheet .sub {
+        color: var(--quiet);
+        font-size: 12.5px;
+        margin-bottom: 10px;
+      }
+      .sheet .close {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        border: none;
+        font-size: 18px;
+        padding: 2px 8px;
+      }
+      .sheet table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13.5px;
+      }
+      .sheet td {
+        padding: 6px 0;
+        border-top: 1px solid #eee;
+        vertical-align: top;
+      }
+      .sheet td:first-child {
+        color: var(--quiet);
+        width: 38%;
+      }
+      .unknown {
+        color: var(--gap);
+        font-weight: 600;
+      }
+      .known {
+        color: var(--ok);
+        font-weight: 600;
+      }
+      .src {
+        color: var(--quiet);
+        font-size: 12px;
+      }
+      .legend-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 4px 0;
+        font-size: 13px;
+      }
+      .legend-row svg {
+        flex: none;
+      }
+      .stat {
+        display: flex;
+        justify-content: space-between;
+        padding: 5px 0;
+        border-top: 1px solid #eee;
+        font-size: 13.5px;
+      }
+      .note {
+        font-size: 12.5px;
+        color: var(--quiet);
+        margin-top: 10px;
+      }
+      @media (min-width: 720px) {
+        .sheet {
+          left: auto;
+          right: 64px;
+          bottom: 24px;
+          top: calc(64px + var(--safe-top));
+          max-height: none;
+          width: 380px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>__TITLE__ <span class="ver">· 2D map v0.3</span></h1>
+      <button id="btnGaps" aria-label="Survey gaps">Gaps</button>
+      <button id="btnLegend" aria-label="Legend">Legend</button>
+    </header>
+    <svg id="map" xmlns="http://www.w3.org/2000/svg" aria-label="2D map of the area">
+      <defs>
+        <pattern
+          id="hatch"
+          patternUnits="userSpaceOnUse"
+          width="24"
+          height="24"
+          patternTransform="rotate(45)"
+        >
+          <rect width="24" height="24" fill="#efe3e3" />
+          <line x1="0" y1="0" x2="0" y2="24" stroke="#c98b8b" stroke-width="7" />
+        </pattern>
+      </defs>
+      <g id="world"></g>
+      <g id="labels"></g>
+    </svg>
+    <div id="controls">
+      <button id="zin" aria-label="Zoom in">+</button>
+      <button id="zout" aria-label="Zoom out">&minus;</button>
+      <button id="home" aria-label="Reset view" style="font-size: 15px">&#8982;</button>
+    </div>
+    <div id="scale">
+      <div class="bar"></div>
+      <span></span>
+    </div>
+    <div id="attrib">
+      Roads &copy;
+      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener"
+        >OpenStreetMap contributors</a
+      >
+      (ODbL) &middot; Buildings:
+      <a href="https://sites.research.google/gr/open-buildings/" target="_blank" rel="noopener"
+        >Google Open Buildings</a
+      >
+      (CC BY 4.0)
+    </div>
+    <div class="sheet" id="sheet">
+      <button class="close" id="sheetClose" aria-label="Close">&times;</button>
+      <div id="sheetBody"></div>
+    </div>
 
-  // ---- interaction: drag, wheel, pinch ----
-  const pointers = new Map(); let last = null, pinch = null, moved = 0;
-  svg.addEventListener('pointerdown', e => { svg.setPointerCapture(e.pointerId); pointers.set(e.pointerId, [e.clientX, e.clientY]); moved = 0;
-    if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: cam.s }; } last = [e.clientX, e.clientY]; });
-  svg.addEventListener('pointermove', e => {
-    if (!pointers.has(e.pointerId)) return;
-    pointers.set(e.pointerId, [e.clientX, e.clientY]);
-    if (pointers.size === 2 && pinch) {
-      const [a, b] = [...pointers.values()], mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-      zoomAt(mid[0], mid[1], pinch.s * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d / cam.s); moved += 10; return;
-    }
-    if (last) { const dx = e.clientX - last[0], dy = e.clientY - last[1]; moved += Math.abs(dx) + Math.abs(dy);
-      cam.x -= dx / cam.s; cam.y += dy / cam.s; last = [e.clientX, e.clientY]; render(); }
-  });
-  const end = e => { pointers.delete(e.pointerId); if (pointers.size < 2) pinch = null; if (!pointers.size) last = null; else last = [...pointers.values()][0]; };
-  svg.addEventListener('pointerup', e => { const wasTap = moved < 6 && pointers.size === 1; end(e); if (wasTap) pick(e); });
-  svg.addEventListener('pointercancel', end);
-  svg.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
-  function zoomAt(sx, sy, f) {
-    const { w } = size(); const ns = Math.min(Math.max(cam.s * f, w / (R * 8)), 40);
-    const [wx, wy] = toWorld(sx, sy); cam.s = ns; const [nx, ny] = toWorld(sx, sy); cam.x += wx - nx; cam.y += wy - ny; render();
-  }
-  document.getElementById('zin').onclick = () => { zoomAt(size().w / 2, midY(), 1.6); };
-  document.getElementById('zout').onclick = () => { zoomAt(size().w / 2, midY(), 1 / 1.6); };
-  document.getElementById('home').onclick = () => { fit(); render(); };
-  window.addEventListener('resize', render);
+    <script id="world-data" type="application/json">
+      __WORLD_JSON__
+    </script>
+    <script>
+      (() => {
+        const W = JSON.parse(document.getElementById("world-data").textContent);
+        const NS = "http://www.w3.org/2000/svg";
+        const svg = document.getElementById("map"),
+          gWorld = document.getElementById("world"),
+          gLabels = document.getElementById("labels");
+        const R = W.meta.radius_m;
 
-  // ---- selection + info sheet ----
-  const sheet = document.getElementById('sheet'), body = document.getElementById('sheetBody');
-  document.getElementById('sheetClose').onclick = () => { sheet.classList.remove('open'); layerSel.textContent = ''; };
-  const srcName = src => (src || '').startsWith('open-buildings:google-v3') ? 'Google Open Buildings (satellite-detected)' : null;
-  const osmLink = src => { if (srcName(src)) return srcName(src); const m = /^osm:(way|node)\/(\d+)$/.exec(src || ''); return m ? `<a href="https://www.openstreetmap.org/${m[1]}/${m[2]}" target="_blank" rel="noopener">OpenStreetMap ${m[1]} ${m[2]}</a>` : (src || ''); };
-  const val = (a, fmt) => a.value === null || a.value === undefined
-    ? '<span class="unknown">Unknown &middot; needs survey</span>'
-    : `<span class="known">${fmt ? fmt(a.value) : a.value}</span><div class="src">from ${osmLink(a.source)}</div>`;
-  function pick(e) {
-    const t = document.elementFromPoint(e.clientX, e.clientY);
-    const host = t && t.closest('[data-id]');
-    if (!host) return;
-    select(host.getAttribute('data-id'));
-  }
-  function select(id) {
-    const item = byId[id]; if (!item) return false;
-    const f = item.f; layerSel.textContent = '';
-    let html = '';
-    if (item.type === 'road') {
-      el('path', { d: item.d, fill: 'none', stroke: '#1d6fd8', 'stroke-width': 7, 'stroke-opacity': .55, 'stroke-linecap': 'round', 'vector-effect': 'non-scaling-stroke', 'pointer-events': 'none' }, layerSel);
-      html = `<h2>${f.name.value || 'Unnamed ' + f.class.toLowerCase()}</h2><div class="sub">${f.class} &middot; ${Math.round(len(f.parts))} m in this map</div><table>
-        <tr><td>Road width</td><td>${val(f.width_m, v => v + ' m')}</td></tr>
+        const ROAD_STYLE = {
+          motorway: ["#c0392b", 6],
+          trunk: ["#c0392b", 6],
+          primary: ["#d6604d", 5],
+          secondary: ["#e3a13b", 4.2],
+          tertiary: ["#e3a13b", 3.4],
+          unclassified: ["#5b6169", 2.6],
+          residential: ["#5b6169", 2.1],
+          living_street: ["#5b6169", 2.1],
+          service: ["#9aa0a6", 1.4],
+          track: ["#9a7b4f", 1.4, "5 4"],
+          path: ["#9a7b4f", 1.2, "2 3"],
+          footway: ["#9a7b4f", 1.2, "2 3"],
+          pedestrian: ["#9a7b4f", 1.6],
+          cycleway: ["#2f7d5b", 1.2, "2 3"],
+        };
+        const AREA_STYLE = (k) =>
+          k === "building"
+            ? ["#c9b8a6", "#9c8670"]
+            : k === "landuse:industrial"
+              ? ["#e6dde9", "none"]
+              : k.startsWith("landuse:")
+                ? ["#f1ece0", "none"]
+                : k.startsWith("leisure:") || k.startsWith("natural:")
+                  ? ["#dcebd3", "none"]
+                  : ["#e9e4d8", "none"];
+
+        const el = (tag, attrs, parent) => {
+          const e = document.createElementNS(NS, tag);
+          for (const k in attrs) e.setAttribute(k, attrs[k]);
+          if (parent) parent.appendChild(e);
+          return e;
+        };
+        const pathD = (pts) => pts.map((p, i) => (i ? "L" : "M") + p[0] + " " + -p[1]).join("");
+        const len = (parts) =>
+          parts.reduce(
+            (s, pts) =>
+              s + pts.slice(1).reduce((a, p, i) => a + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0),
+            0,
+          );
+
+        // ---- draw world (world units = metres, y flipped so north is up) ----
+        const byId = {};
+        const layerAreas = el("g", {}, gWorld),
+          layerLines = el("g", {}, gWorld),
+          layerRoads = el("g", {}, gWorld),
+          layerHits = el("g", {}, gWorld),
+          layerSel = el("g", {}, gWorld),
+          layerPois = el("g", {}, gWorld);
+
+        // land use first (big), then buildings on top
+        const areas = [...W.areas].sort((a, b) => (a.kind === "building") - (b.kind === "building"));
+        for (const a of areas) {
+          const [fill0, stroke0] = AREA_STYLE(a.kind);
+          const low = a.confidence && a.confidence.value < 0.75;
+          const fill = a.restricted ? "url(#hatch)" : low ? "#e3d8cb" : fill0,
+            stroke = a.restricted ? "#b45454" : stroke0;
+          const p = el(
+            "path",
+            {
+              d: pathD(a.points) + "Z",
+              fill,
+              stroke,
+              "stroke-width": low ? 0.8 : 0.6,
+              "stroke-dasharray": low ? "2 2" : "",
+              "vector-effect": "non-scaling-stroke",
+              "data-id": a.id,
+            },
+            layerAreas,
+          );
+          if (a.kind === "building" || a.restricted) {
+            p.style.cursor = "pointer";
+          }
+          byId[a.id] = { f: a, type: "area", node: p };
+        }
+        for (const l of W.lines) {
+          const water = l.kind.startsWith("waterway");
+          for (const pts of l.parts)
+            el(
+              "path",
+              {
+                d: pathD(pts),
+                fill: "none",
+                stroke: water ? "#3b82c4" : "#8a5cc2",
+                "stroke-width": water ? 1.8 : 1.1,
+                "stroke-dasharray": water ? "" : "7 4",
+                "vector-effect": "non-scaling-stroke",
+              },
+              layerLines,
+            );
+          byId[l.id] = { f: l, type: "line" };
+        }
+        const order = [
+          "service",
+          "track",
+          "path",
+          "footway",
+          "residential",
+          "living_street",
+          "unclassified",
+          "tertiary",
+          "secondary",
+          "primary",
+          "trunk",
+          "motorway",
+        ];
+        const roads = [...W.roads].sort((a, b) => order.indexOf(a.osm_class) - order.indexOf(b.osm_class));
+        for (const r of roads) {
+          const [col, w, dash] = ROAD_STYLE[r.osm_class] || ["#7a7f87", 1.5];
+          const d = r.parts.map(pathD).join("");
+          el(
+            "path",
+            {
+              d,
+              fill: "none",
+              stroke: col,
+              "stroke-width": w,
+              "stroke-linecap": "round",
+              "stroke-linejoin": "round",
+              "stroke-dasharray": dash || "",
+              "vector-effect": "non-scaling-stroke",
+            },
+            layerRoads,
+          );
+          const hit = el(
+            "path",
+            {
+              d,
+              fill: "none",
+              stroke: "transparent",
+              "stroke-width": 16,
+              "vector-effect": "non-scaling-stroke",
+              "pointer-events": "stroke",
+              "data-id": r.id,
+            },
+            layerHits,
+          );
+          hit.style.cursor = "pointer";
+          byId[r.id] = { f: r, type: "road", d };
+        }
+        const layerOwner = el("g", {}, gWorld);
+        for (const r of W.roads)
+          if (r.notes && r.osm_class !== "primary") {
+            el(
+              "path",
+              {
+                d: r.parts.map(pathD).join(""),
+                fill: "none",
+                stroke: "#1d6fd8",
+                "stroke-width": 2,
+                "stroke-dasharray": "1 7",
+                "stroke-linecap": "round",
+                "vector-effect": "non-scaling-stroke",
+                "pointer-events": "none",
+                transform: "",
+              },
+              layerOwner,
+            );
+          }
+        gWorld.insertBefore(layerOwner, layerHits);
+        // outside-the-radius veil + boundary circle
+        const big = R * 4;
+        el(
+          "path",
+          {
+            d: `M${-big} ${-big}H${big}V${big}H${-big}Z M${R} 0A${R} ${R} 0 1 0 ${-R} 0A${R} ${R} 0 1 0 ${R} 0Z`,
+            fill: "rgba(247,244,236,0.72)",
+            "fill-rule": "evenodd",
+            "pointer-events": "none",
+          },
+          gWorld,
+        );
+        el(
+          "circle",
+          {
+            cx: 0,
+            cy: 0,
+            r: R,
+            fill: "none",
+            stroke: "#8b8577",
+            "stroke-width": 1.2,
+            "stroke-dasharray": "6 5",
+            "vector-effect": "non-scaling-stroke",
+            "pointer-events": "none",
+          },
+          gWorld,
+        );
+
+        // ---- labels (screen space so text never scales or flips) ----
+        const labelItems = [];
+        const placeKinds = ["place:suburb", "place:neighbourhood"];
+        for (const p of W.pois) {
+          const isPlace = placeKinds.includes(p.kind),
+            isTower = p.kind === "power:tower";
+          byId[p.id] = { f: p, type: "poi" };
+          labelItems.push({ p, isPlace, isTower });
+        }
+        for (const a of W.areas)
+          if (a.restricted) {
+            // label at the most interior point of the area that lies inside the circle (keeps it off roads and edges)
+            const pts = a.points,
+              inside = (x, y) => {
+                let c = false;
+                for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+                  const [xi, yi] = pts[i],
+                    [xj, yj] = pts[j];
+                  if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+                }
+                return c;
+              };
+            const segDist = (x, y) => {
+              let m = Infinity;
+              for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+                const [ax, ay] = pts[j],
+                  [bx, by] = pts[i],
+                  dx = bx - ax,
+                  dy = by - ay,
+                  L = dx * dx + dy * dy || 1;
+                const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L));
+                m = Math.min(m, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+              }
+              return m;
+            };
+            const roadDist = (x, y) =>
+              Math.min(
+                ...W.roads
+                  .filter((r) => r.osm_class === "primary")
+                  .flatMap((r) => r.parts.flat())
+                  .map((p) => Math.hypot(p[0] - x, p[1] - y)),
+              );
+            let best = null;
+            for (let x = -R; x <= R; x += 25)
+              for (let y = -R; y <= R; y += 25) {
+                if (Math.hypot(x, y) > R * 0.92 || !inside(x, y)) continue;
+                const sc = Math.min(segDist(x, y), roadDist(x, y));
+                if (!best || sc > best[2]) best = [x, y, sc];
+              }
+            if (best) labelItems.push({ restricted: a, at: [best[0], best[1]] });
+          }
+        // main named roads get a label at their midpoint
+        const bestByName = {};
+        for (const r of W.roads)
+          if (r.name.value) {
+            const L = len(r.parts);
+            if (!bestByName[r.name.value] || L > bestByName[r.name.value].L)
+              bestByName[r.name.value] = { r, L };
+          }
+        for (const { r } of Object.values(bestByName)) {
+          const pts = r.parts.reduce((a, b) => (len([b]) > len([a]) ? b : a));
+          labelItems.push({ road: r, at: pts[Math.floor(pts.length / 2)] });
+        }
+
+        // ---- camera ----
+        let cam = { x: 0, y: 0, s: 1 };
+        const headerH = () => document.querySelector("header").getBoundingClientRect().height;
+        const size = () => {
+          const r = svg.getBoundingClientRect();
+          return { w: r.width, h: r.height, top: headerH() };
+        };
+        const fit = () => {
+          const { w, h, top } = size();
+          cam = { x: 0, y: 0, s: Math.min(w - 24, h - top - 70) / (2 * R * 1.04) };
+        };
+        const midY = () => {
+          const { h, top } = size();
+          return top + (h - top) / 2;
+        };
+        const toScreen = (x, y) => {
+          const { w } = size();
+          return [w / 2 + (x - cam.x) * cam.s, midY() - (y - cam.y) * cam.s];
+        };
+        const toWorld = (sx, sy) => {
+          const { w } = size();
+          return [cam.x + (sx - w / 2) / cam.s, cam.y - (sy - midY()) / cam.s];
+        };
+
+        function render() {
+          const { w, h } = size();
+          gWorld.setAttribute(
+            "transform",
+            `translate(${w / 2} ${midY()}) scale(${cam.s}) translate(${-cam.x} ${cam.y})`,
+          );
+          gLabels.textContent = "";
+          for (const it of labelItems) {
+            if (it.restricted) {
+              const [sx, sy] = toScreen(it.at[0], it.at[1]);
+              const t = el(
+                "text",
+                {
+                  x: sx,
+                  y: sy,
+                  "text-anchor": "middle",
+                  "font-size": 12,
+                  "font-weight": 650,
+                  fill: "#8f2f2f",
+                  stroke: "#f7f4ec",
+                  "stroke-width": 3,
+                  "paint-order": "stroke",
+                  "pointer-events": "none",
+                },
+                gLabels,
+              );
+              t.textContent = "ONGC · restricted";
+              continue;
+            }
+            if (it.road) {
+              const [sx, sy] = toScreen(it.at[0], it.at[1]);
+              const t = el(
+                "text",
+                {
+                  x: sx,
+                  y: sy - 8,
+                  "text-anchor": "middle",
+                  "font-size": 12,
+                  "font-weight": 600,
+                  fill: "#7a2e22",
+                  stroke: "#f7f4ec",
+                  "stroke-width": 3,
+                  "paint-order": "stroke",
+                },
+                gLabels,
+              );
+              t.textContent = it.road.name.value;
+              continue;
+            }
+            const [sx, sy] = toScreen(it.p.point[0], it.p.point[1]);
+            if (it.isTower) {
+              if (cam.s > 0.6)
+                el("rect", { x: sx - 2.5, y: sy - 2.5, width: 5, height: 5, fill: "#8a5cc2" }, gLabels);
+              continue;
+            }
+            if (it.isPlace) {
+              const t = el(
+                "text",
+                {
+                  x: sx,
+                  y: sy,
+                  "text-anchor": "middle",
+                  "font-size": it.p.kind === "place:suburb" ? 13 : 11.5,
+                  "font-style": "italic",
+                  "letter-spacing": ".04em",
+                  fill: "#4b5160",
+                  stroke: "#f7f4ec",
+                  "stroke-width": 3,
+                  "paint-order": "stroke",
+                  "pointer-events": "none",
+                },
+                gLabels,
+              );
+              t.textContent = (it.p.alias && it.p.alias.value) || it.p.name.value || "";
+              continue;
+            }
+            const g = el("g", { "data-id": it.p.id }, gLabels);
+            g.style.cursor = "pointer";
+            el("circle", { cx: sx, cy: sy, r: 6, fill: "#1d6fd8", stroke: "#fff", "stroke-width": 2 }, g);
+            const t = el(
+              "text",
+              {
+                x: sx + 9,
+                y: sy + 4,
+                "font-size": 12,
+                fill: "#1f2328",
+                stroke: "#f7f4ec",
+                "stroke-width": 3,
+                "paint-order": "stroke",
+              },
+              g,
+            );
+            t.textContent = it.p.name.value || it.p.kind.split(":")[1].replace(/_/g, " ");
+          }
+          // centre pin
+          const [cx, cy] = toScreen(0, 0);
+          const pin = el("g", { "pointer-events": "none" }, gLabels);
+          el(
+            "path",
+            {
+              d: `M${cx} ${cy}c-6 -9 -10 -13 -10 -19a10 10 0 0 1 20 0c0 6 -4 10 -10 19z`,
+              fill: "#e11d48",
+              stroke: "#fff",
+              "stroke-width": 2,
+            },
+            pin,
+          );
+          el("circle", { cx, cy: cy - 19, r: 3.5, fill: "#fff" }, pin);
+          // scale bar
+          const target = 110 / cam.s,
+            pow = Math.pow(10, Math.floor(Math.log10(target)));
+          const nice = [1, 2, 5, 10]
+            .map((m) => m * pow)
+            .reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a));
+          document.querySelector("#scale .bar").style.width = nice * cam.s + "px";
+          document.querySelector("#scale span").textContent =
+            nice >= 1000 ? nice / 1000 + " km" : nice + " m";
+        }
+
+        // ---- interaction: drag, wheel, pinch ----
+        const pointers = new Map();
+        let last = null,
+          pinch = null,
+          moved = 0;
+        svg.addEventListener("pointerdown", (e) => {
+          svg.setPointerCapture(e.pointerId);
+          pointers.set(e.pointerId, [e.clientX, e.clientY]);
+          moved = 0;
+          if (pointers.size === 2) {
+            const [a, b] = [...pointers.values()];
+            pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: cam.s };
+          }
+          last = [e.clientX, e.clientY];
+        });
+        svg.addEventListener("pointermove", (e) => {
+          if (!pointers.has(e.pointerId)) return;
+          pointers.set(e.pointerId, [e.clientX, e.clientY]);
+          if (pointers.size === 2 && pinch) {
+            const [a, b] = [...pointers.values()],
+              mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+            zoomAt(mid[0], mid[1], (pinch.s * Math.hypot(a[0] - b[0], a[1] - b[1])) / pinch.d / cam.s);
+            moved += 10;
+            return;
+          }
+          if (last) {
+            const dx = e.clientX - last[0],
+              dy = e.clientY - last[1];
+            moved += Math.abs(dx) + Math.abs(dy);
+            cam.x -= dx / cam.s;
+            cam.y += dy / cam.s;
+            last = [e.clientX, e.clientY];
+            render();
+          }
+        });
+        const end = (e) => {
+          pointers.delete(e.pointerId);
+          if (pointers.size < 2) pinch = null;
+          if (!pointers.size) last = null;
+          else last = [...pointers.values()][0];
+        };
+        svg.addEventListener("pointerup", (e) => {
+          const wasTap = moved < 6 && pointers.size === 1;
+          end(e);
+          if (wasTap) pick(e);
+        });
+        svg.addEventListener("pointercancel", end);
+        svg.addEventListener(
+          "wheel",
+          (e) => {
+            e.preventDefault();
+            zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
+          },
+          { passive: false },
+        );
+        function zoomAt(sx, sy, f) {
+          const { w } = size();
+          const ns = Math.min(Math.max(cam.s * f, w / (R * 8)), 40);
+          const [wx, wy] = toWorld(sx, sy);
+          cam.s = ns;
+          const [nx, ny] = toWorld(sx, sy);
+          cam.x += wx - nx;
+          cam.y += wy - ny;
+          render();
+        }
+        document.getElementById("zin").onclick = () => {
+          zoomAt(size().w / 2, midY(), 1.6);
+        };
+        document.getElementById("zout").onclick = () => {
+          zoomAt(size().w / 2, midY(), 1 / 1.6);
+        };
+        document.getElementById("home").onclick = () => {
+          fit();
+          render();
+        };
+        window.addEventListener("resize", render);
+
+        // ---- selection + info sheet ----
+        const sheet = document.getElementById("sheet"),
+          body = document.getElementById("sheetBody");
+        document.getElementById("sheetClose").onclick = () => {
+          sheet.classList.remove("open");
+          layerSel.textContent = "";
+        };
+        const srcName = (src) =>
+          (src || "").startsWith("open-buildings:google-v3")
+            ? "Google Open Buildings (satellite-detected)"
+            : null;
+        const osmLink = (src) => {
+          if (srcName(src)) return srcName(src);
+          const m = /^osm:(way|node)\/(\d+)$/.exec(src || "");
+          return m
+            ? `<a href="https://www.openstreetmap.org/${m[1]}/${m[2]}" target="_blank" rel="noopener">OpenStreetMap ${m[1]} ${m[2]}</a>`
+            : src || "";
+        };
+        const val = (a, fmt) =>
+          a.value === null || a.value === undefined
+            ? '<span class="unknown">Unknown &middot; needs survey</span>'
+            : `<span class="known">${fmt ? fmt(a.value) : a.value}</span><div class="src">from ${osmLink(a.source)}</div>`;
+        function pick(e) {
+          const t = document.elementFromPoint(e.clientX, e.clientY);
+          const host = t && t.closest("[data-id]");
+          if (!host) return;
+          select(host.getAttribute("data-id"));
+        }
+        function select(id) {
+          const item = byId[id];
+          if (!item) return false;
+          const f = item.f;
+          layerSel.textContent = "";
+          let html = "";
+          if (item.type === "road") {
+            el(
+              "path",
+              {
+                d: item.d,
+                fill: "none",
+                stroke: "#1d6fd8",
+                "stroke-width": 7,
+                "stroke-opacity": 0.55,
+                "stroke-linecap": "round",
+                "vector-effect": "non-scaling-stroke",
+                "pointer-events": "none",
+              },
+              layerSel,
+            );
+            html = `<h2>${f.name.value || "Unnamed " + f.class.toLowerCase()}</h2><div class="sub">${f.class} &middot; ${Math.round(len(f.parts))} m in this map</div><table>
+        <tr><td>Road width</td><td>${val(f.width_m, (v) => v + " m")}</td></tr>
         <tr><td>Surface</td><td>${val(f.surface)}</td></tr>
         <tr><td>Drain</td><td>${val(f.drain)}</td></tr>
         <tr><td>Footpath</td><td>${val(f.footpath)}</td></tr>
         <tr><td>Lanes</td><td>${val(f.lanes)}</td></tr>
         <tr><td>One-way</td><td>${val(f.oneway)}</td></tr>
         <tr><td>Map source</td><td>${osmLink(f.source)}</td></tr>
-        ${(f.notes || []).map(n => `<tr><td>Your note</td><td><span class="known">${n.value}</span><div class="src">owner survey ${n.source.split('-').slice(1).join('-')}</div></td></tr>`).join('')}</table>
+        ${(f.notes || []).map((n) => `<tr><td>Your note</td><td><span class="known">${n.value}</span><div class="src">owner survey ${n.source.split("-").slice(1).join("-")}</div></td></tr>`).join("")}</table>
         <div class="note">Line thickness on this map shows the road type only. Real width is drawn after it is surveyed.</div>`;
-    } else if (item.type === 'area') {
-      el('path', { d: pathD(f.points) + 'Z', fill: 'rgba(29,111,216,.18)', stroke: '#1d6fd8', 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke', 'pointer-events': 'none' }, layerSel);
-      if (f.restricted) {
-        html = `<h2>Restricted area</h2><div class="sub">${f.kind.replace(':', ' &middot; ')}</div><table>
-          <tr><td>Status</td><td><span class="unknown">${f.restricted.value}</span><div class="src">owner survey ${f.restricted.source.split('-').slice(1).join('-')}</div></td></tr>
+          } else if (item.type === "area") {
+            el(
+              "path",
+              {
+                d: pathD(f.points) + "Z",
+                fill: "rgba(29,111,216,.18)",
+                stroke: "#1d6fd8",
+                "stroke-width": 2,
+                "vector-effect": "non-scaling-stroke",
+                "pointer-events": "none",
+              },
+              layerSel,
+            );
+            if (f.restricted) {
+              html = `<h2>Restricted area</h2><div class="sub">${f.kind.replace(":", " &middot; ")}</div><table>
+          <tr><td>Status</td><td><span class="unknown">${f.restricted.value}</span><div class="src">owner survey ${f.restricted.source.split("-").slice(1).join("-")}</div></td></tr>
           <tr><td>Map source</td><td>${osmLink(f.source)}</td></tr></table>
           <div class="note">Sensitive sites are never photographed or modelled. In the game this stays a walled, off-limits area.</div>`;
-        body.innerHTML = html; sheet.classList.add('open'); return true;
-      }
-      html = `<h2>${f.name.value || (f.kind === 'building' ? (f.amenity ? f.amenity.replace(/_/g, ' ') + ' building' : 'Building') : f.kind.split(':')[1])}</h2>
-        <div class="sub">${f.kind.replace(':', ' &middot; ')}</div><table>
+              body.innerHTML = html;
+              sheet.classList.add("open");
+              return true;
+            }
+            html = `<h2>${f.name.value || (f.kind === "building" ? (f.amenity ? f.amenity.replace(/_/g, " ") + " building" : "Building") : f.kind.split(":")[1])}</h2>
+        <div class="sub">${f.kind.replace(":", " &middot; ")}</div><table>
         <tr><td>Floors</td><td>${val(f.levels)}</td></tr>
-        ${f.area_m2 ? `<tr><td>Footprint</td><td>${Math.round(f.area_m2.value)} m&sup2;</td></tr>` : ''}
-        ${f.confidence ? `<tr><td>Detection confidence</td><td>${Math.round(f.confidence.value * 100)}%${f.confidence.value < 0.75 ? ' <span class="unknown">&middot; please check</span>' : ''}</td></tr>` : ''}
+        ${f.area_m2 ? `<tr><td>Footprint</td><td>${Math.round(f.area_m2.value)} m&sup2;</td></tr>` : ""}
+        ${f.confidence ? `<tr><td>Detection confidence</td><td>${Math.round(f.confidence.value * 100)}%${f.confidence.value < 0.75 ? ' <span class="unknown">&middot; please check</span>' : ""}</td></tr>` : ""}
         <tr><td>Map source</td><td>${osmLink(f.source)}</td></tr></table>
-        ${f.confidence ? '<div class="note">Outline detected from satellite imagery by Google. Floors, height, walls and look come from your survey and photos.</div>' : ''}`;
-    } else if (item.type === 'poi') {
-      html = `<h2>${(f.alias && f.alias.value) || f.name.value || f.kind.split(':')[1].replace(/_/g, ' ')}</h2><div class="sub">${f.kind.replace(':', ' &middot; ')}</div>
+        ${f.confidence ? '<div class="note">Outline detected from satellite imagery by Google. Floors, height, walls and look come from your survey and photos.</div>' : ""}`;
+          } else if (item.type === "poi") {
+            html = `<h2>${(f.alias && f.alias.value) || f.name.value || f.kind.split(":")[1].replace(/_/g, " ")}</h2><div class="sub">${f.kind.replace(":", " &middot; ")}</div>
         <table><tr><td>Map source</td><td>${osmLink(f.source)}</td></tr></table>`;
-    }
-    body.innerHTML = html; sheet.classList.add('open'); return true;
-  }
-  const g = W.gaps;
-  document.getElementById('btnGaps').onclick = () => {
-    layerSel.textContent = '';
-    const pct = n => Math.round(100 * n / Math.max(g.roads_total, 1)) + '%';
-    body.innerHTML = `<h2>What the map knows</h2><div class="sub">OpenStreetMap, ${W.meta.radius_m / 1000} km around the pin</div>
+          }
+          body.innerHTML = html;
+          sheet.classList.add("open");
+          return true;
+        }
+        const g = W.gaps;
+        document.getElementById("btnGaps").onclick = () => {
+          layerSel.textContent = "";
+          const pct = (n) => Math.round((100 * n) / Math.max(g.roads_total, 1)) + "%";
+          body.innerHTML = `<h2>What the map knows</h2><div class="sub">OpenStreetMap, ${W.meta.radius_m / 1000} km around the pin</div>
       <div class="stat"><span>Road segments</span><b>${g.roads_total} (${(g.road_length_m / 1000).toFixed(1)} km)</b></div>
       <div class="stat"><span>Without a name</span><b class="unknown">${g.roads_without_name} (${pct(g.roads_without_name)})</b></div>
       <div class="stat"><span>Without width</span><b class="unknown">${g.roads_without_width} (${pct(g.roads_without_width)})</b></div>
@@ -319,33 +868,45 @@
       <div class="stat"><span>Buildings to double-check</span><b class="unknown">${g.buildings_low_confidence || 0}</b></div>
       <div class="stat"><span>Buildings with floors known</span><b class="unknown">${g.buildings_mapped - g.buildings_without_levels}</b></div>
       <div class="note">Nothing on this map is guessed. Orange values are unknown and become the street survey checklist.</div>`;
-    sheet.classList.add('open');
-  };
-  const sw = (stroke, w, dash) => `<svg width="34" height="12"><line x1="2" y1="6" x2="32" y2="6" stroke="${stroke}" stroke-width="${w}" stroke-dasharray="${dash || ''}" stroke-linecap="round"/></svg>`;
-  document.getElementById('btnLegend').onclick = () => {
-    layerSel.textContent = '';
-    body.innerHTML = `<h2>Legend</h2><div class="sub">Tap any road or place for details</div>
-      <div class="legend-row">${sw('#d6604d', 5)}Main road</div>
-      <div class="legend-row">${sw('#e3a13b', 3.6)}Secondary / connector road</div>
-      <div class="legend-row">${sw('#5b6169', 2.2)}Colony lane</div>
-      <div class="legend-row">${sw('#9aa0a6', 1.4)}Service lane</div>
-      <div class="legend-row">${sw('#9a7b4f', 1.4, '5 4')}Track / path</div>
-      <div class="legend-row">${sw('#3b82c4', 1.8)}Drain (open water channel)</div>
-      <div class="legend-row">${sw('#8a5cc2', 1.2, '7 4')}Power line &middot; <svg width="10" height="10"><rect x="2" y="2" width="6" height="6" fill="#8a5cc2"/></svg> tower</div>
+          sheet.classList.add("open");
+        };
+        const sw = (stroke, w, dash) =>
+          `<svg width="34" height="12"><line x1="2" y1="6" x2="32" y2="6" stroke="${stroke}" stroke-width="${w}" stroke-dasharray="${dash || ""}" stroke-linecap="round"/></svg>`;
+        document.getElementById("btnLegend").onclick = () => {
+          layerSel.textContent = "";
+          body.innerHTML = `<h2>Legend</h2><div class="sub">Tap any road or place for details</div>
+      <div class="legend-row">${sw("#d6604d", 5)}Main road</div>
+      <div class="legend-row">${sw("#e3a13b", 3.6)}Secondary / connector road</div>
+      <div class="legend-row">${sw("#5b6169", 2.2)}Colony lane</div>
+      <div class="legend-row">${sw("#9aa0a6", 1.4)}Service lane</div>
+      <div class="legend-row">${sw("#9a7b4f", 1.4, "5 4")}Track / path</div>
+      <div class="legend-row">${sw("#3b82c4", 1.8)}Drain (open water channel)</div>
+      <div class="legend-row">${sw("#8a5cc2", 1.2, "7 4")}Power line &middot; <svg width="10" height="10"><rect x="2" y="2" width="6" height="6" fill="#8a5cc2"/></svg> tower</div>
       <div class="legend-row"><svg width="34" height="14"><rect x="6" y="1" width="22" height="12" fill="#c9b8a6" stroke="#9c8670"/></svg>Building (satellite-detected)</div>
       <div class="legend-row"><svg width="34" height="14"><rect x="6" y="1" width="22" height="12" fill="#e3d8cb" stroke="#9c8670" stroke-dasharray="2 2"/></svg>Building, lower confidence: please check</div>
       <div class="legend-row"><svg width="34" height="14"><circle cx="17" cy="7" r="5" fill="#1d6fd8" stroke="#fff" stroke-width="2"/></svg>Place (hospital, theatre...)</div>
-      <div class="legend-row">${sw('#1d6fd8', 2, '1 5')}Road you described (owner note)</div>
+      <div class="legend-row">${sw("#1d6fd8", 2, "1 5")}Road you described (owner note)</div>
       <div class="legend-row"><svg width="34" height="14"><rect x="6" y="1" width="22" height="12" fill="#efe3e3" stroke="#b45454"/><line x1="8" y1="13" x2="20" y2="1" stroke="#c98b8b" stroke-width="3"/></svg>Restricted area (never modelled)</div>
       <div class="legend-row"><svg width="34" height="14"><circle cx="17" cy="7" r="6" fill="none" stroke="#8b8577" stroke-dasharray="4 3"/></svg>1 km radius around the pin</div>
       <div class="note">Line thickness shows road type, not real width. Widths, drains and footpaths are drawn only once surveyed.</div>`;
-    sheet.classList.add('open');
-  };
+          sheet.classList.add("open");
+        };
 
-  fit(); render();
-  window.__TEST__ = { ready: true, counts: { roads: W.roads.length, areas: W.areas.length, lines: W.lines.length, pois: W.pois.length },
-    select, camera: () => ({ ...cam }), gaps: g };
-})();
-</script>
-</body>
+        fit();
+        render();
+        window.__TEST__ = {
+          ready: true,
+          counts: {
+            roads: W.roads.length,
+            areas: W.areas.length,
+            lines: W.lines.length,
+            pois: W.pois.length,
+          },
+          select,
+          camera: () => ({ ...cam }),
+          gaps: g,
+        };
+      })();
+    </script>
+  </body>
 </html>

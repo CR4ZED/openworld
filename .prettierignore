@@ -1,0 +1,5 @@
+node_modules/
+viewer/dist/
+test-results/
+data/
+package-lock.json
