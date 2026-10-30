@@ -7,8 +7,11 @@
       content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
     />
     <title>FCI Colony · 3D</title>
-    <script type="module" crossorigin src="./assets/index-CDopn3Ex.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BlCpHpPr.css">
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <script type="module" crossorigin src="./assets/index-CZ19NNTC.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-B_Ew5_u5.css">
   </head>
   <body>
     <canvas id="scene" aria-label="3D view of the colony"></canvas>
@@ -31,6 +34,14 @@
         >Google Open Buildings</a
       >
       (CC BY 4.0)
+    </div>
+    <div id="rotate" role="dialog" aria-live="polite" aria-label="Turn your phone sideways">
+      <div class="phone" aria-hidden="true"></div>
+      <p><b>Turn your phone sideways</b><br />FCI Colony is played in landscape.</p>
+      <p class="hint">If it doesn't turn, switch off Portrait Orientation Lock in Control Centre.</p>
+    </div>
+    <div id="start" role="dialog" aria-label="Start">
+      <button id="btnPlay">Play</button>
     </div>
   </body>
 </html>
