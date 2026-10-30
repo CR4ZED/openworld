@@ -634,6 +634,15 @@
   ${Object.entries(f.survey || {})
     .map(([k, v]) => `<tr><td>${k.replace(/_/g, " ")}</td><td>${val(v)}</td></tr>`)
     .join("")}</table>
+  ${
+    f.width_check && f.width_check.samples
+      ? `<div class="note${f.width_check.ok ? "" : " warn"}">${
+          f.width_check.ok
+            ? `Cross-check: buildings on both sides are about ${f.width_check.gap_median_m} m apart, so ${f.width_m.value} m fits.`
+            : `Please re-check this width: buildings on both sides are only about ${f.width_check.gap_median_m} m apart, narrower than ${f.width_m.value} m.`
+        }</div>`
+      : ""
+  }
   <div class="sv-actions"><button type="button" class="primary" id="btnSurveyRoad">${
     window.OpenworldSurvey && window.OpenworldSurvey.has(f.id) ? "Edit my survey" : "Survey this street"
   }</button></div>
@@ -759,6 +768,7 @@
 <div class="stat"><span>Without surface</span><b class="unknown">${g.roads_without_surface} (${pct(g.roads_without_surface)})</b></div>
 <div class="stat"><span>Drain known</span><b class="unknown">${g.roads_total - g.roads_without_drain}</b></div>
 <div class="stat"><span>Footpath known</span><b class="unknown">${g.roads_total - g.roads_without_footpath}</b></div>
+<div class="stat"><span>Surveyed widths to re-check</span><b class="${g.roads_width_to_recheck ? "unknown" : "known"}">${g.roads_width_to_recheck || 0}</b></div>
 <div class="stat"><span>Roads surveyed</span><b class="${g.roads_surveyed ? "known" : "unknown"}">${g.roads_surveyed || 0}</b></div>
 <div class="stat"><span>Buildings mapped</span><b class="known">${g.buildings_mapped}</b></div>
 <div class="stat"><span>Buildings to double-check</span><b class="unknown">${g.buildings_low_confidence || 0}</b></div>

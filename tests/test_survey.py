@@ -10,7 +10,12 @@ import unittest
 
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
-from build_world import SurveyError, apply_street_survey, validate_street_survey  # noqa: E402
+from build_world import (  # noqa: E402
+    SurveyError,
+    apply_street_survey,
+    check_widths_against_buildings,
+    validate_street_survey,
+)
 
 ROAD_IDS = {"road-1", "road-2"}
 VALID = {
@@ -209,7 +214,42 @@ SHIPPED_OPTIONS = {
     "footpath": ["none", "one side", "both sides"],
     "width_method": ["tape", "pacing", "estimate"],
     "edges": ["compound walls", "mud shoulder", "kerb", "open land", "mixed"],
+    "garbage": ["none", "some litter", "heaps in places", "regular dump spot"],
+    "stray_animals": ["none", "few", "many"],
+    "shops_stalls": ["none", "few", "many"],
 }
+
+
+class WidthCheckTests(unittest.TestCase):
+    """A road running between two rows of buildings 10 m apart (5 m each side of the centreline)."""
+
+    def world(self, width):
+        w = tiny_world()
+        w["areas"] = [
+            {"id": "b1", "kind": "building", "points": [(0, 5), (100, 5), (100, 15), (0, 15)]},
+            {"id": "b2", "kind": "building", "points": [(0, -5), (100, -5), (100, -15), (0, -15)]},
+        ]
+        w["roads"][0]["parts"] = [[(0, 0), (100, 0)]]
+        w["roads"][0]["width_m"] = {"value": width, "source": "survey:owner-2026-10-30"}
+        check_widths_against_buildings(w)
+        return w
+
+    def test_width_that_fits_between_buildings_is_ok(self):
+        c = self.world(8)["roads"][0]["width_check"]
+        self.assertTrue(c["ok"])
+        self.assertAlmostEqual(c["gap_median_m"], 10, delta=0.2)
+
+    def test_width_wider_than_buildings_allow_is_flagged(self):
+        w = self.world(15)
+        self.assertFalse(w["roads"][0]["width_check"]["ok"])
+        self.assertEqual(w["gaps"]["roads_width_to_recheck"], 1)
+        self.assertEqual(
+            w["roads"][0]["width_m"]["value"], 15, "the check must never change the surveyed width"
+        )
+
+    def test_unknown_width_not_checked(self):
+        w = self.world(None)
+        self.assertNotIn("width_check", w["roads"][0])
 
 
 class SchemaTests(unittest.TestCase):

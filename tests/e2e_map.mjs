@@ -86,6 +86,16 @@ for (const [label, opts] of [
   });
   await page.evaluate((i) => window.__TEST__.select(i), id);
   const sheetText = await page.textContent("#sheet");
+  if (label === "desktop") {
+    const covered = await page.evaluate(() => {
+      const a = document.getElementById("sheet").getBoundingClientRect();
+      const hit = (b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+      return [...document.querySelectorAll("#controls button")]
+        .filter((b) => hit(b.getBoundingClientRect()))
+        .map((b) => b.id);
+    });
+    check(covered.length === 0, `[${label}] open info panel doesn't cover map buttons ${covered.join(",")}`);
+  }
   check(/Road width\s*Unknown/.test(sheetText), `[${label}] lane with no data shows width as Unknown`);
   check(/Drain\s*Unknown/.test(sheetText), `[${label}] drain shows Unknown (not invented)`);
   await page.screenshot({ path: path.join(outDir, `${label}_selected.png`) });

@@ -136,6 +136,40 @@
       ]
     },
     {
+      "key": "garbage",
+      "label": "Garbage on this street",
+      "help": "Loose litter, heaps by the roadside, or a regular dump spot (pin a dump spot with + Place).",
+      "type": "choice",
+      "options": [
+        "none",
+        "some litter",
+        "heaps in places",
+        "regular dump spot"
+      ]
+    },
+    {
+      "key": "stray_animals",
+      "label": "Stray animals",
+      "help": "Dogs, cows, buffaloes, goats, pigs usually seen here.",
+      "type": "choice",
+      "options": [
+        "none",
+        "few",
+        "many"
+      ]
+    },
+    {
+      "key": "shops_stalls",
+      "label": "Shops and stalls",
+      "help": "Kirana stores, tea stalls, tiffin centres, carts.",
+      "type": "choice",
+      "options": [
+        "none",
+        "few",
+        "many"
+      ]
+    },
+    {
       "key": "notes",
       "label": "Anything else",
       "help": "Shops, temple, school, cows usually here, cricket in the evening...",
@@ -171,12 +205,18 @@
     "park or ground",
     "market",
     "petrol bunk",
+    "roadside shrine",
+    "pan shop",
+    "garbage dump spot",
+    "fruit / vegetable cart",
+    "cattle shed",
     "other"
   ],
   "sacred_place_types": [
-    "temple",
+    "church",
     "mosque",
-    "church"
+    "roadside shrine",
+    "temple"
   ],
   "place_fields": [
     {

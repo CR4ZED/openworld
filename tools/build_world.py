@@ -562,6 +562,81 @@ def apply_street_survey(world, survey_path):
     g["places_surveyed"] = sum(1 for p in world["pois"] if p["source"].startswith("survey:"))
 
 
+def check_widths_against_buildings(world, max_side_m=40.0, step_m=5.0, cell=20.0):
+    """Cross-check surveyed widths with building outlines (an independent source).
+
+    Along each road with a known width, measure the distance to the nearest building on each side and
+    add them: that gap is an upper bound for the road width where buildings stand on both sides.
+    Adds road['width_check'] = {gap_median_m, gap_p10_m, samples, ok}. ok is False when the width is
+    wider than the median gap, which means the width or the map needs re-checking. Never changes widths.
+    """
+    grid = {}
+    for a in world["areas"]:
+        if a["kind"] != "building":
+            continue
+        pts = a["points"]
+        for i in range(len(pts)):
+            e = (pts[i - 1], pts[i])
+            for gx in range(int(min(e[0][0], e[1][0]) // cell), int(max(e[0][0], e[1][0]) // cell) + 1):
+                for gy in range(int(min(e[0][1], e[1][1]) // cell), int(max(e[0][1], e[1][1]) // cell) + 1):
+                    grid.setdefault((gx, gy), []).append(e)
+    reach = int(max_side_m // cell) + 1
+
+    def nearest(p, ux, uy):
+        left = right = None
+        gx, gy = int(p[0] // cell), int(p[1] // cell)
+        for i in range(gx - reach, gx + reach + 1):
+            for j in range(gy - reach, gy + reach + 1):
+                for a, b in grid.get((i, j), ()):
+                    dx, dy = b[0] - a[0], b[1] - a[1]
+                    t = max(
+                        0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / ((dx * dx + dy * dy) or 1))
+                    )
+                    q = (a[0] + t * dx, a[1] + t * dy)
+                    d = math.dist(p, q)
+                    if d > max_side_m:
+                        continue
+                    if ux * (q[1] - p[1]) - uy * (q[0] - p[0]) > 0:
+                        left = d if left is None else min(left, d)
+                    else:
+                        right = d if right is None else min(right, d)
+        return left, right
+
+    flagged = 0
+    for r in world["roads"]:
+        width = r["width_m"]["value"]
+        if width is None:
+            continue
+        gaps = []
+        for part in r["parts"]:
+            for a, b in pairwise(part):
+                length = math.dist(a, b)
+                if length == 0:
+                    continue
+                ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+                n = max(1, int(length // step_m))
+                for k in range(n):
+                    p = (a[0] + ux * length * k / n, a[1] + uy * length * k / n)
+                    left, right = nearest(p, ux, uy)
+                    if left is not None and right is not None:
+                        gaps.append(left + right)
+        if not gaps:
+            r["width_check"] = {"samples": 0, "ok": None}
+            continue
+        gaps.sort()
+        median, p10 = gaps[len(gaps) // 2], gaps[len(gaps) // 10]
+        ok = width <= median
+        flagged += not ok
+        r["width_check"] = {
+            "gap_median_m": round(median, 1),
+            "gap_p10_m": round(p10, 1),
+            "samples": len(gaps),
+            "ok": ok,
+            "source": "open-buildings:google-v3",
+        }
+    world["gaps"]["roads_width_to_recheck"] = flagged
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--street-survey", action="append", default=[], help="street survey JSON (repeatable)")
@@ -586,6 +661,12 @@ def main():
     for sv in surveys:  # later surveys override earlier ones for the same field
         apply_street_survey(world, sv)
         print(f"applied street survey {sv}")
+    check_widths_against_buildings(world)
+    for r in world["roads"]:
+        c = r.get("width_check")
+        if c and c["ok"] is False:
+            w_m, gap = r["width_m"]["value"], c["gap_median_m"]
+            print(f"WARNING {r['id']}: surveyed {w_m} m but buildings are ~{gap} m apart")
     with open(a.out, "w") as f:
         json.dump(world, f, ensure_ascii=False, separators=(",", ":"))
     print(json.dumps(world["gaps"], indent=1))
