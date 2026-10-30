@@ -47,6 +47,7 @@ async function main() {
   placeOnRoad(start, player, look);
 
   const controls = makeControls(canvas, look);
+  setupLandscape(controls.isTouch);
   let showEstimates = false;
   const btn = document.getElementById("btnEstimates")!;
   btn.addEventListener("click", () => {
@@ -107,7 +108,8 @@ async function main() {
     fps = 0;
   const frame = () => {
     const dt = Math.min(clock.getDelta(), 0.1);
-    step(dt, controls.read());
+    // phones held upright show "turn sideways": the world waits until it is landscape
+    if (!document.body.classList.contains("portrait")) step(dt, controls.read());
     camera.position.set(player.x, EYE_HEIGHT, -player.y);
     const dir = new THREE.Vector3(
       Math.sin(look.yaw) * Math.cos(look.pitch),
@@ -153,6 +155,30 @@ async function main() {
     roadAt: (x: number, y: number) => roadAt(x, y)?.id ?? null,
     hud: () => where.textContent,
   };
+}
+
+/**
+ * Phones play in landscape. Android: "Play" enters fullscreen and locks to landscape. iPhone Safari does not let
+ * websites lock orientation, so upright phones get a full-screen "turn your phone sideways" prompt instead.
+ */
+function setupLandscape(isTouch: boolean) {
+  const body = document.body;
+  const update = () => body.classList.toggle("portrait", innerHeight > innerWidth);
+  addEventListener("resize", update);
+  addEventListener("orientationchange", update);
+  update();
+  if (!isTouch) return;
+  body.classList.add("needs-start");
+  document.getElementById("btnPlay")!.addEventListener("click", async () => {
+    body.classList.remove("needs-start");
+    try {
+      await document.documentElement.requestFullscreen?.({ navigationUI: "hide" });
+      const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+      await o.lock?.("landscape");
+    } catch {
+      // not supported (e.g. iPhone Safari): the rotate prompt covers portrait instead
+    }
+  });
 }
 
 /** Put the player in the middle of a road, facing along it. */

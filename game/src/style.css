@@ -145,3 +145,89 @@ body.touch #help {
 #attrib a {
   color: inherit;
 }
+
+/* ---- phones: landscape only ---- */
+#rotate,
+#start {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
+  padding: 24px;
+  background: #1f2328;
+  color: #fff;
+}
+#rotate .hint {
+  font-size: 12.5px;
+  color: #c7ccd3;
+  max-width: 280px;
+}
+#rotate .phone {
+  width: 46px;
+  height: 78px;
+  border: 3px solid #fff;
+  border-radius: 9px;
+  animation: turn 2s ease-in-out infinite;
+}
+@keyframes turn {
+  0%,
+  20% {
+    transform: rotate(0);
+  }
+  60%,
+  100% {
+    transform: rotate(-90deg);
+  }
+}
+body.touch.portrait #rotate {
+  display: flex;
+}
+body.touch.needs-start:not(.portrait) #start {
+  display: flex;
+  background: rgba(31, 35, 40, 0.55);
+}
+#btnPlay {
+  font: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  padding: 14px 40px;
+  border-radius: 12px;
+  border: none;
+  background: #15803d;
+  color: #fff;
+}
+/* compact top strip in landscape on short screens */
+@media (orientation: landscape) and (max-height: 500px) {
+  #hud {
+    flex-wrap: nowrap;
+    padding: calc(4px + var(--safe-top)) calc(10px + env(safe-area-inset-right, 0px)) 4px
+      calc(10px + env(safe-area-inset-left, 0px));
+    gap: 8px;
+  }
+  #hud .ver {
+    display: none;
+  }
+  #where {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #hud button,
+  #hud a {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+  #joystick {
+    left: calc(20px + env(safe-area-inset-left, 0px));
+    bottom: calc(16px + var(--safe-bottom));
+  }
+  #fps {
+    top: calc(40px + var(--safe-top));
+  }
+}

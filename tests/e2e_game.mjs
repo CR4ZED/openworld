@@ -43,7 +43,8 @@ const browser = await chromium.launch({
 });
 for (const [label, opts] of [
   ["desktop", { viewport: { width: 1280, height: 800 } }],
-  ["iphone", { viewport: { width: 402, height: 874 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }],
+  // phones play in landscape (iPhone 17-sized screen turned sideways)
+  ["phone", { viewport: { width: 874, height: 402 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }],
 ]) {
   const page = await browser.newPage(opts);
   const errors = [];
@@ -53,6 +54,14 @@ for (const [label, opts] of [
   await page.goto(url);
   await page.waitForFunction(() => window.__GAME__ && window.__GAME__.ready, null, { timeout: MAX_LOAD_MS });
   check(Date.now() - t0 < MAX_LOAD_MS, `[${label}] 3D world ready in ${Date.now() - t0} ms`);
+  if (label === "phone") {
+    check(await page.isVisible("#btnPlay"), `[${label}] phone shows a Play button first`);
+    check(!(await page.isVisible("#rotate")), `[${label}] no "turn sideways" prompt in landscape`);
+    await page.click("#btnPlay"); // fullscreen + landscape lock where the browser allows it (not in tests)
+    check(!(await page.isVisible("#start")), `[${label}] Play starts the game`);
+    const hudH = await page.evaluate(() => document.getElementById("hud").getBoundingClientRect().height);
+    check(hudH <= 48, `[${label}] top strip is compact in landscape (${Math.round(hudH)} px)`);
+  }
   await page.waitForTimeout(800); // let a few frames render
 
   check(errors.length === 0, `[${label}] no console errors ${errors.length ? JSON.stringify(errors) : ""}`);
@@ -199,7 +208,29 @@ for (const [label, opts] of [
   await page.evaluate(() => window.__GAME__.teleport(150, -150, -0.8));
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(outDir, `game_${label}_street.png`) });
-  if (label === "iphone") check(await page.isVisible("#joystick"), `[${label}] touch joystick is shown`);
+  if (label === "phone") check(await page.isVisible("#joystick"), `[${label}] touch joystick is shown`);
+  await page.close();
+}
+// a phone held upright: the game asks to be turned sideways and waits
+{
+  const page = await browser.newPage({
+    viewport: { width: 402, height: 874 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  await page.goto(url);
+  await page.waitForFunction(() => window.__GAME__ && window.__GAME__.ready, null, { timeout: MAX_LOAD_MS });
+  check(await page.isVisible("#rotate"), "[phone portrait] shows 'Turn your phone sideways'");
+  const covered = await page.evaluate(() => {
+    const r = document.getElementById("rotate").getBoundingClientRect();
+    return r.width >= innerWidth && r.height >= innerHeight;
+  });
+  check(covered, "[phone portrait] prompt covers the whole screen");
+  await page.screenshot({ path: path.join(outDir, "game_phone_portrait.png") });
+  // turning the phone (resizing to landscape) removes the prompt
+  await page.setViewportSize({ width: 874, height: 402 });
+  await page.waitForTimeout(200);
+  check(!(await page.isVisible("#rotate")), "[phone portrait] prompt disappears when turned to landscape");
   await page.close();
 }
 await browser.close();
