@@ -231,3 +231,37 @@ body.touch.needs-start:not(.portrait) #start {
     top: calc(40px + var(--safe-top));
   }
 }
+
+/* desktop mouse-look */
+#help .when-locked {
+  display: none;
+}
+body.locked #help .unlocked {
+  display: none;
+}
+body.locked #help .when-locked {
+  display: inline;
+}
+#scene {
+  cursor: pointer;
+}
+body.locked #scene {
+  cursor: none;
+}
+#crosshair {
+  pointer-events: none;
+  position: fixed;
+  z-index: 2;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  display: none;
+}
+body.locked #crosshair {
+  display: block;
+}

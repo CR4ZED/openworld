@@ -191,6 +191,55 @@ for (const [label, opts] of [
     `[${label}] no sideways drift when walking straight at a wall (${wall.sideways?.toFixed(2)} m)`,
   );
 
+  if (label === "desktop") {
+    // mouse-look: click captures the mouse, moving it turns the view without dragging, Esc releases it
+    await page.mouse.click(640, 400);
+    await page.waitForTimeout(150);
+    check(
+      await page.evaluate(() => window.__GAME__.mouseLocked()),
+      `[${label}] clicking the view captures the mouse`,
+    );
+    check(await page.isVisible("#crosshair"), `[${label}] crosshair shown while looking with the mouse`);
+    check(
+      (await page.evaluate(() => getComputedStyle(document.getElementById("crosshair")).pointerEvents)) ===
+        "none",
+      `[${label}] crosshair never blocks clicks on the view`,
+    );
+    // a real mouse reports movementX/Y while captured; headless Chrome reports 0, so send the same events
+    const before = await page.evaluate(() => window.__GAME__.look());
+    await page.evaluate(() => {
+      for (let i = 0; i < 10; i++)
+        document.dispatchEvent(new MouseEvent("mousemove", { movementX: 20, movementY: 0 }));
+    });
+    const after = await page.evaluate(() => window.__GAME__.look());
+    check(
+      after.yaw - before.yaw > 0.4 && Math.abs(after.pitch - before.pitch) < 1e-6,
+      `[${label}] moving the mouse right (no button held) turns right (yaw +${(after.yaw - before.yaw).toFixed(2)} rad)`,
+    );
+    await page.evaluate(() => {
+      for (let i = 0; i < 10; i++)
+        document.dispatchEvent(new MouseEvent("mousemove", { movementX: 0, movementY: -20 }));
+    });
+    check(
+      (await page.evaluate(() => window.__GAME__.look())).pitch > after.pitch,
+      `[${label}] moving the mouse up looks up`,
+    );
+    // Esc is handled by the browser itself: it releases the capture, like this
+    await page.evaluate(() => document.exitPointerLock());
+    await page.waitForTimeout(150);
+    check(
+      !(await page.evaluate(() => window.__GAME__.mouseLocked())),
+      `[${label}] releasing the mouse (Esc) works`,
+    );
+    check(!(await page.isVisible("#crosshair")), `[${label}] crosshair hidden after the mouse is freed`);
+    const yawFree = (await page.evaluate(() => window.__GAME__.look())).yaw;
+    await page.evaluate(() => document.dispatchEvent(new MouseEvent("mousemove", { movementX: 200 })));
+    check(
+      (await page.evaluate(() => window.__GAME__.look())).yaw === yawFree,
+      `[${label}] a free mouse doesn't turn the view`,
+    );
+  }
+
   // estimates toggle tints estimated roads and is reversible
   await page.click("#btnEstimates");
   check(

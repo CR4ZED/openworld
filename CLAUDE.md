@@ -43,6 +43,8 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Performance budget: at most 40 draw calls (geometry merged per material). `tests/e2e_game.mjs` checks the
   picture really renders (not blank; sky above, ground below), walking speed, wall collision, budgets.
 - Building floors are estimates (estimate:v1) by footprint until the owner surveys them.
+- Desktop look = mouse movement (owner, 2026-10-31): click the view to capture the mouse (pointer lock), Esc frees
+  it; drag is only a fallback. Overlays on the view (crosshair) must have pointer-events: none.
 - Phones play in landscape (owner, 2026-10-30). Android: Play button -> fullscreen + orientation lock. iPhone Safari
   cannot lock orientation, so portrait shows a full-screen "turn your phone sideways" prompt and the world waits.
   Tests run the phone in landscape and check the portrait prompt.

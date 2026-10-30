@@ -21,19 +21,40 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
   addEventListener("keyup", (e) => keys.delete(e.code));
   addEventListener("blur", () => keys.clear());
 
-  // drag to look (mouse or a finger on the canvas)
+  // Desktop: click the view once to capture the mouse (pointer lock); then moving the mouse turns your head.
+  // Esc releases the mouse. If pointer lock is unavailable, dragging still works as a fallback.
+  const MOUSE_SENSITIVITY = 0.0022; // radians per pixel of mouse movement
+  const turn = (dx: number, dy: number, s: number) => {
+    look.yaw += dx * s;
+    look.pitch = Math.max(-1.2, Math.min(1.2, look.pitch - dy * s));
+  };
+  const locked = () => document.pointerLockElement === canvas;
+  if (!isTouch) {
+    canvas.addEventListener("click", () => {
+      if (locked() || !canvas.requestPointerLock) return;
+      // request() returns a promise in modern browsers; ignore refusals (fallback = drag)
+      const r = canvas.requestPointerLock() as unknown as Promise<void> | undefined;
+      r?.catch?.(() => {});
+    });
+    document.addEventListener("pointerlockchange", () => document.body.classList.toggle("locked", locked()));
+    document.addEventListener("mousemove", (e) => {
+      if (locked()) turn(e.movementX, e.movementY, MOUSE_SENSITIVITY);
+    });
+  }
+
+  // drag to look (a finger on phones; mouse fallback when the pointer isn't captured)
   let lookPointer: number | null = null;
   let last: [number, number] = [0, 0];
   canvas.addEventListener("pointerdown", (e) => {
+    if (locked()) return;
     lookPointer = e.pointerId;
     last = [e.clientX, e.clientY];
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointermove", (e) => {
     if (e.pointerId !== lookPointer) return;
-    const s = isTouch ? 0.006 : 0.004;
-    look.yaw += (e.clientX - last[0]) * s;
-    look.pitch = Math.max(-1.2, Math.min(1.2, look.pitch - (e.clientY - last[1]) * s));
+    if (locked()) return;
+    turn(e.clientX - last[0], e.clientY - last[1], isTouch ? 0.006 : 0.004);
     last = [e.clientX, e.clientY];
   });
   const endLook = (e: PointerEvent) => {
@@ -84,5 +105,5 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
       run: keys.has("ShiftLeft") || keys.has("ShiftRight") || Math.hypot(stick.x, stick.y) > 0.95,
     };
   };
-  return { read, isTouch };
+  return { read, isTouch, turn: (dx: number, dy: number) => turn(dx, dy, MOUSE_SENSITIVITY), locked };
 }

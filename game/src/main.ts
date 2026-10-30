@@ -154,6 +154,8 @@ async function main() {
       collider.wallNear(x, y, minLen, maxDist),
     roadAt: (x: number, y: number) => roadAt(x, y)?.id ?? null,
     hud: () => where.textContent,
+    mouseLocked: () => controls.locked(),
+    look: () => ({ yaw: look.yaw, pitch: look.pitch }),
   };
 }
 
