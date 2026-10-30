@@ -7,7 +7,14 @@ import unittest
 
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
-from estimates import CORE, SOURCE, estimate_roads, group_of, measure_surroundings  # noqa: E402
+from estimates import (  # noqa: E402
+    CORE,
+    SOURCE,
+    estimate_buildings,
+    estimate_roads,
+    group_of,
+    measure_surroundings,
+)
 
 WORLD = os.path.join(HERE, "..", "data", "world", "fci_colony.json")
 SCHEMA = os.path.join(HERE, "..", "data", "survey", "street_survey_schema.json")
@@ -126,6 +133,34 @@ class EstimateRuleTests(unittest.TestCase):
         )
         roads = run(world)
         self.assertNotIn("estimate", roads["r-service"])
+
+
+class BuildingEstimateTests(unittest.TestCase):
+    def building(self, size, levels=None):
+        lv = {"value": levels, "source": "survey:owner-2026-10-30" if levels else None}
+        return {
+            "id": f"b{size}",
+            "kind": "building",
+            "levels": lv,
+            "points": [(0, 0), (size, 0), (size, size), (0, size)],
+        }
+
+    def test_floors_estimated_by_footprint_and_labelled(self):
+        w = {"areas": [self.building(5), self.building(10), self.building(20)]}  # 25, 100, 400 m2
+        self.assertEqual(estimate_buildings(w), 3)
+        got = [a["estimate"]["levels"] for a in w["areas"]]
+        self.assertEqual([e["value"] for e in got], [1, 2, 3])
+        for e in got:
+            self.assertEqual((e["source"], e["confidence"]), (SOURCE, "low"))
+            self.assertTrue(e["basis"])
+        self.assertTrue(
+            all(a["levels"]["value"] is None for a in w["areas"]), "estimate filled the real value"
+        )
+
+    def test_known_floors_are_not_estimated(self):
+        w = {"areas": [self.building(10, levels=3)]}
+        self.assertEqual(estimate_buildings(w), 0)
+        self.assertNotIn("estimate", w["areas"][0])
 
 
 class RealWorldEstimateTests(unittest.TestCase):

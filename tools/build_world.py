@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from itertools import pairwise
 
-from estimates import estimate_roads, measure_surroundings  # same folder as this script
+from estimates import estimate_buildings, estimate_roads, measure_surroundings  # same folder as this script
 
 ROAD_CLASSES = {
     "motorway": "Highway",
@@ -624,6 +624,7 @@ def main():
     with open(SURVEY_SCHEMA) as f:
         n_est = estimate_roads(world, json.load(f))
     world["gaps"]["roads_with_estimates"] = n_est
+    world["gaps"]["buildings_with_estimates"] = estimate_buildings(world)
     print(f"estimates made for {n_est} roads (marked estimate:v1, never replacing survey values)")
     for r in world["roads"]:
         c = r.get("width_check")

@@ -329,3 +329,40 @@ def _group_word(g, n=2):
         "track": ("track", "tracks"),
     }
     return words[g][0 if n == 1 else 1]
+
+
+# ---------------------------------------------------------------- buildings
+
+# Floors by footprint size. Colony houses around Kakinada are mostly ground or ground + 1 floor with flat
+# RCC roofs; larger footprints are usually apartments, schools or commercial blocks. Owner to confirm.
+FLOOR_BANDS = [(60.0, 1), (250.0, 2), (float("inf"), 3)]
+FLOOR_HEIGHT_M = 3.0
+
+
+def estimate_buildings(world):
+    """Fill building['estimate']['levels'] where floors are unknown. Returns how many were estimated."""
+    count = 0
+    for a in world["areas"]:
+        if a["kind"] != "building":
+            continue
+        a.pop("estimate", None)
+        if a["levels"]["value"] is not None:
+            continue
+        area = (a.get("area_m2") or {}).get("value") or _polygon_area(a["points"])
+        floors = next(f for limit, f in FLOOR_BANDS if area < limit)
+        a["estimate"] = {
+            "levels": {
+                "value": floors,
+                "source": SOURCE,
+                "basis": f"Footprint about {round(area)} m². Colony houses here are mostly ground or "
+                "ground + 1 floor; bigger footprints are usually apartments, schools or shops. "
+                "Owner to confirm.",
+                "confidence": "low",
+            }
+        }
+        count += 1
+    return count
+
+
+def _polygon_area(pts):
+    return abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1], strict=True))) / 2
