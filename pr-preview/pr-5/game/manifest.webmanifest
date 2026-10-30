@@ -1,9 +1,0 @@
-{
-  "name": "FCI Colony",
-  "short_name": "FCI Colony",
-  "start_url": "./",
-  "display": "fullscreen",
-  "orientation": "landscape",
-  "background_color": "#dfe6ea",
-  "theme_color": "#dfe6ea"
-}
