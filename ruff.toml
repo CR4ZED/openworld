@@ -1,0 +1,7 @@
+line-length = 110
+target-version = "py312"
+extend-exclude = ["data", "viewer/dist", "node_modules"]
+
+[lint]
+# pyflakes, pycodestyle errors/warnings, import order, bugbear, pyupgrade
+select = ["F", "E", "W", "I", "B", "UP"]

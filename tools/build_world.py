@@ -10,24 +10,45 @@ Usage:
       --lat 17.0143794 --lon 82.2647444 --radius 1000 \
       --name "FCI Colony, Vakalapudi" --out data/world/fci_colony.json
 """
+
 import argparse
 import json
 import math
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from itertools import pairwise
 
 ROAD_CLASSES = {
-    "motorway": "Highway", "trunk": "Highway", "primary": "Main road",
-    "secondary": "Secondary road", "tertiary": "Connector road",
-    "unclassified": "Minor road", "residential": "Colony lane",
-    "living_street": "Colony lane", "service": "Service lane",
-    "track": "Track", "path": "Path", "footway": "Footpath",
-    "pedestrian": "Pedestrian street", "cycleway": "Cycle path",
+    "motorway": "Highway",
+    "trunk": "Highway",
+    "primary": "Main road",
+    "secondary": "Secondary road",
+    "tertiary": "Connector road",
+    "unclassified": "Minor road",
+    "residential": "Colony lane",
+    "living_street": "Colony lane",
+    "service": "Service lane",
+    "track": "Track",
+    "path": "Path",
+    "footway": "Footpath",
+    "pedestrian": "Pedestrian street",
+    "cycleway": "Cycle path",
 }
 # Attributes the survey must eventually provide for every road.
 ROAD_SURVEY_ATTRS = ["width", "surface", "drain", "footpath"]
-POI_KEYS = ["amenity", "shop", "place", "power", "barrier", "leisure",
-            "tourism", "religion", "man_made", "highway", "office"]
+POI_KEYS = [
+    "amenity",
+    "shop",
+    "place",
+    "power",
+    "barrier",
+    "leisure",
+    "tourism",
+    "religion",
+    "man_made",
+    "highway",
+    "office",
+]
 
 
 def local_xy(lat, lon, lat0, lon0):
@@ -39,6 +60,7 @@ def local_xy(lat, lon, lat0, lon0):
 
 def clip_polygon(pts, h):
     """Sutherland-Hodgman clip of a polygon to the square [-h, h]^2."""
+
     def clip(poly, inside, cut):
         out = []
         for i, cur in enumerate(poly):
@@ -58,8 +80,12 @@ def clip_polygon(pts, h):
         return lambda a, b: (round(a[0] + (b[0] - a[0]) * (yv - a[1]) / (b[1] - a[1]), 2), yv)
 
     poly = list(pts)
-    for inside, cut in ((lambda p: p[0] >= -h, cut_x(-h)), (lambda p: p[0] <= h, cut_x(h)),
-                        (lambda p: p[1] >= -h, cut_y(-h)), (lambda p: p[1] <= h, cut_y(h))):
+    for inside, cut in (
+        (lambda p: p[0] >= -h, cut_x(-h)),
+        (lambda p: p[0] <= h, cut_x(h)),
+        (lambda p: p[1] >= -h, cut_y(-h)),
+        (lambda p: p[1] <= h, cut_y(h)),
+    ):
         if not poly:
             break
         poly = clip(poly, inside, cut)
@@ -69,7 +95,7 @@ def clip_polygon(pts, h):
 def clip_line(pts, h):
     """Clip a polyline to the square [-h, h]^2; returns a list of parts (Liang-Barsky per segment)."""
     parts, cur = [], []
-    for a, b in zip(pts, pts[1:]):
+    for a, b in pairwise(pts):
         t0, t1 = 0.0, 1.0
         dx, dy = b[0] - a[0], b[1] - a[1]
         ok = True
@@ -138,8 +164,9 @@ def build(osm_path, lat0, lon0, radius, name):
         tags = {t.get("k"): t.get("v") for t in w.findall("tag")}
         if not tags:
             continue
-        pts = [local_xy(*nodes[nd.get("ref")], lat0, lon0)
-               for nd in w.findall("nd") if nd.get("ref") in nodes]
+        pts = [
+            local_xy(*nodes[nd.get("ref")], lat0, lon0) for nd in w.findall("nd") if nd.get("ref") in nodes
+        ]
         if len(pts) < 2 or not inside(pts):
             continue
         src = f"osm:way/{w.get('id')}"
@@ -151,41 +178,65 @@ def build(osm_path, lat0, lon0, radius, name):
 
         if "highway" in tags:
             hw = tags["highway"]
-            roads.append({
-                "id": f"road-{w.get('id')}", "source": src, "osm_class": hw,
-                "class": ROAD_CLASSES.get(hw, hw.replace("_", " ").title()),
-                "name": attr(tags.get("name"), src if tags.get("name") else None),
-                "width_m": attr(parse_number(tags.get("width")), src if parse_number(tags.get("width")) else None),
-                "lanes": attr(parse_number(tags.get("lanes")), src if tags.get("lanes") else None),
-                "surface": attr(tags.get("surface"), src if tags.get("surface") else None),
-                "oneway": attr(tags.get("oneway"), src if tags.get("oneway") else None),
-                "drain": attr(None, None),      # never in OSM for these lanes: survey only
-                "footpath": attr(tags.get("sidewalk"), src if tags.get("sidewalk") else None),
-                "parts": parts,
-            })
-        elif "building" in tags or (closed and any(k in tags for k in ("landuse", "amenity", "leisure", "natural"))):
-            kind = ("building" if "building" in tags else
-                    "landuse:" + tags["landuse"] if "landuse" in tags else
-                    "amenity:" + tags["amenity"] if "amenity" in tags else
-                    "leisure:" + tags["leisure"] if "leisure" in tags else
-                    "natural:" + tags["natural"])
+            roads.append(
+                {
+                    "id": f"road-{w.get('id')}",
+                    "source": src,
+                    "osm_class": hw,
+                    "class": ROAD_CLASSES.get(hw, hw.replace("_", " ").title()),
+                    "name": attr(tags.get("name"), src if tags.get("name") else None),
+                    "width_m": attr(
+                        parse_number(tags.get("width")), src if parse_number(tags.get("width")) else None
+                    ),
+                    "lanes": attr(parse_number(tags.get("lanes")), src if tags.get("lanes") else None),
+                    "surface": attr(tags.get("surface"), src if tags.get("surface") else None),
+                    "oneway": attr(tags.get("oneway"), src if tags.get("oneway") else None),
+                    "drain": attr(None, None),  # never in OSM for these lanes: survey only
+                    "footpath": attr(tags.get("sidewalk"), src if tags.get("sidewalk") else None),
+                    "parts": parts,
+                }
+            )
+        elif "building" in tags or (
+            closed and any(k in tags for k in ("landuse", "amenity", "leisure", "natural"))
+        ):
+            kind = (
+                "building"
+                if "building" in tags
+                else "landuse:" + tags["landuse"]
+                if "landuse" in tags
+                else "amenity:" + tags["amenity"]
+                if "amenity" in tags
+                else "leisure:" + tags["leisure"]
+                if "leisure" in tags
+                else "natural:" + tags["natural"]
+            )
             poly = clip_polygon(pts[:-1] if closed else pts, half)
             if len(poly) < 3:
                 continue
             levels = parse_number(tags.get("building:levels"))
-            areas.append({
-                "id": f"area-{w.get('id')}", "source": src, "kind": kind,
-                "subtype": tags.get("building") if "building" in tags else None,
-                "name": attr(tags.get("name"), src if tags.get("name") else None),
-                "amenity": tags.get("amenity"),
-                "levels": attr(levels, src if levels else None),
-                "points": poly,
-            })
+            areas.append(
+                {
+                    "id": f"area-{w.get('id')}",
+                    "source": src,
+                    "kind": kind,
+                    "subtype": tags.get("building") if "building" in tags else None,
+                    "name": attr(tags.get("name"), src if tags.get("name") else None),
+                    "amenity": tags.get("amenity"),
+                    "levels": attr(levels, src if levels else None),
+                    "points": poly,
+                }
+            )
         elif any(k in tags for k in ("waterway", "power", "railway", "barrier")):
             kind = next(f"{k}:{tags[k]}" for k in ("waterway", "power", "railway", "barrier") if k in tags)
-            lines.append({"id": f"line-{w.get('id')}", "source": src, "kind": kind,
-                          "name": attr(tags.get("name"), src if tags.get("name") else None),
-                          "parts": parts})
+            lines.append(
+                {
+                    "id": f"line-{w.get('id')}",
+                    "source": src,
+                    "kind": kind,
+                    "name": attr(tags.get("name"), src if tags.get("name") else None),
+                    "parts": parts,
+                }
+            )
 
     for nid, tags in node_tags.items():
         key = next((k for k in POI_KEYS if k in tags), None)
@@ -194,34 +245,52 @@ def build(osm_path, lat0, lon0, radius, name):
         x, y = local_xy(*nodes[nid], lat0, lon0)
         if math.hypot(x, y) > radius:
             continue
-        pois.append({"id": f"poi-{nid}", "source": f"osm:node/{nid}",
-                     "kind": f"{key}:{tags[key]}",
-                     "name": attr(tags.get("name"), f"osm:node/{nid}" if tags.get("name") else None),
-                     "point": [x, y]})
+        pois.append(
+            {
+                "id": f"poi-{nid}",
+                "source": f"osm:node/{nid}",
+                "kind": f"{key}:{tags[key]}",
+                "name": attr(tags.get("name"), f"osm:node/{nid}" if tags.get("name") else None),
+                "point": [x, y],
+            }
+        )
 
     def length(pts):
-        return sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
+        return sum(math.dist(a, b) for a, b in pairwise(pts))
 
     total_len = sum(length(p) for r in roads for p in r["parts"])
     gaps = {
         "roads_total": len(roads),
         "road_length_m": round(total_len),
         "roads_without_name": sum(1 for r in roads if r["name"]["value"] is None),
-        **{f"roads_without_{a}": sum(1 for r in roads if r[a if a != "width" else "width_m"]["value"] is None)
-           for a in ROAD_SURVEY_ATTRS},
+        **{
+            f"roads_without_{a}": sum(
+                1 for r in roads if r[a if a != "width" else "width_m"]["value"] is None
+            )
+            for a in ROAD_SURVEY_ATTRS
+        },
         "buildings_mapped": sum(1 for a in areas if a["kind"] == "building"),
-        "buildings_without_levels": sum(1 for a in areas if a["kind"] == "building" and a["levels"]["value"] is None),
+        "buildings_without_levels": sum(
+            1 for a in areas if a["kind"] == "building" and a["levels"]["value"] is None
+        ),
     }
     return {
         "meta": {
-            "name": name, "center": {"lat": lat0, "lon": lon0}, "radius_m": radius,
+            "name": name,
+            "center": {"lat": lat0, "lon": lon0},
+            "radius_m": radius,
             "units": "metres east (x) / north (y) of centre",
-            "data_source": "OpenStreetMap", "license": "ODbL 1.0",
+            "data_source": "OpenStreetMap",
+            "license": "ODbL 1.0",
             "attribution": "© OpenStreetMap contributors",
-            "generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "generated_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "rule": "null value = unknown, needs survey; nothing is guessed",
         },
-        "gaps": gaps, "roads": roads, "areas": areas, "lines": lines, "pois": pois,
+        "gaps": gaps,
+        "roads": roads,
+        "areas": areas,
+        "lines": lines,
+        "pois": pois,
     }
 
 
@@ -268,6 +337,7 @@ def add_google_buildings(world, csv_path, lat0, lon0, radius):
     Buildings inside restricted areas are dropped: sensitive sites are never modelled."""
     import csv
     import re
+
     src = "open-buildings:google-v3"
     restricted = [a["points"] for a in world["areas"] if "restricted" in a]
     added = dropped_restricted = 0
@@ -283,24 +353,39 @@ def add_google_buildings(world, csv_path, lat0, lon0, radius):
             pts = [local_xy(float(b), float(a), lat0, lon0) for a, b in (p.split() for p in ring.split(","))]
             if pts[0] == pts[-1]:
                 pts = pts[:-1]
-            world["areas"].append({
-                "id": f"bldg-g-{r['full_plus_code'] or i}", "source": f"{src}:{r['full_plus_code']}",
-                "kind": "building", "subtype": None,
-                "name": attr(None, None), "amenity": None,
-                "levels": attr(None, None),
-                "confidence": {"value": round(float(r["confidence"]), 3), "source": src},
-                "area_m2": {"value": round(float(r["area_in_meters"]), 1), "source": src},
-                "points": pts,
-            })
+            world["areas"].append(
+                {
+                    "id": f"bldg-g-{r['full_plus_code'] or i}",
+                    "source": f"{src}:{r['full_plus_code']}",
+                    "kind": "building",
+                    "subtype": None,
+                    "name": attr(None, None),
+                    "amenity": None,
+                    "levels": attr(None, None),
+                    "confidence": {"value": round(float(r["confidence"]), 3), "source": src},
+                    "area_m2": {"value": round(float(r["area_in_meters"]), 1), "source": src},
+                    "points": pts,
+                }
+            )
             added += 1
-    world["meta"].setdefault("building_sources", []).append({
-        "source": src, "name": "Google Open Buildings v3", "license": "CC BY 4.0 or ODbL",
-        "attribution": "Buildings: Google Open Buildings", "added": added,
-        "dropped_in_restricted_areas": dropped_restricted})
+    world["meta"].setdefault("building_sources", []).append(
+        {
+            "source": src,
+            "name": "Google Open Buildings v3",
+            "license": "CC BY 4.0 or ODbL",
+            "attribution": "Buildings: Google Open Buildings",
+            "added": added,
+            "dropped_in_restricted_areas": dropped_restricted,
+        }
+    )
     g = world["gaps"]
     g["buildings_mapped"] = sum(1 for a in world["areas"] if a["kind"] == "building")
-    g["buildings_without_levels"] = sum(1 for a in world["areas"] if a["kind"] == "building" and a["levels"]["value"] is None)
-    g["buildings_low_confidence"] = sum(1 for a in world["areas"] if a.get("confidence", {}).get("value", 1) < 0.75)
+    g["buildings_without_levels"] = sum(
+        1 for a in world["areas"] if a["kind"] == "building" and a["levels"]["value"] is None
+    )
+    g["buildings_low_confidence"] = sum(
+        1 for a in world["areas"] if a.get("confidence", {}).get("value", 1) < 0.75
+    )
 
 
 def main():
@@ -323,7 +408,10 @@ def main():
         json.dump(world, f, ensure_ascii=False, separators=(",", ":"))
     print(json.dumps(world["gaps"], indent=1))
     print(json.dumps(world["meta"].get("building_sources", []), indent=1))
-    print(f"roads {len(world['roads'])}, areas {len(world['areas'])}, lines {len(world['lines'])}, pois {len(world['pois'])}")
+    print(
+        f"roads {len(world['roads'])}, areas {len(world['areas'])}, "
+        f"lines {len(world['lines'])}, pois {len(world['pois'])}"
+    )
 
 
 if __name__ == "__main__":

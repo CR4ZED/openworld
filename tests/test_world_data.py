@@ -4,12 +4,15 @@ Run: python3 -m unittest discover -s tests
 Fails if any feature lacks a source, if any attribute has a value without a
 source (i.e. was invented), or if geometry is outside the expected area.
 """
+
 import json
 import math
 import os
 import unittest
 
-WORLD = os.environ.get("WORLD_JSON", os.path.join(os.path.dirname(__file__), "..", "data", "world", "fci_colony.json"))
+WORLD = os.environ.get(
+    "WORLD_JSON", os.path.join(os.path.dirname(__file__), "..", "data", "world", "fci_colony.json")
+)
 
 
 class WorldDataTests(unittest.TestCase):
@@ -25,7 +28,9 @@ class WorldDataTests(unittest.TestCase):
 
     def test_every_feature_has_a_source(self):
         for f in self.features:
-            self.assertTrue(f.get("source", "").startswith(("osm:", "survey:", "photo:", "open-buildings:")), f["id"])
+            self.assertTrue(
+                f.get("source", "").startswith(("osm:", "survey:", "photo:", "open-buildings:")), f["id"]
+            )
 
     def test_ids_unique(self):
         ids = [f["id"] for f in self.features]
@@ -65,9 +70,12 @@ class WorldDataTests(unittest.TestCase):
                 self.assertNotEqual(a["kind"], "building", a["id"])
 
     def test_no_buildings_inside_restricted_areas(self):
-        import sys, os
+        import os
+        import sys
+
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
         from build_world import point_in_poly
+
         zones = [a["points"] for a in self.w["areas"] if "restricted" in a]
         for b in self.w["areas"]:
             if b["kind"] != "building":
@@ -96,7 +104,9 @@ class WorldDataTests(unittest.TestCase):
     def test_geometry_near_area(self):
         limit = self.w["meta"]["radius_m"] * 1.1 * math.sqrt(2) + 1
         for f in self.features:
-            pts = f.get("points") or ([p for part in f["parts"] for p in part] if "parts" in f else [f["point"]])
+            pts = f.get("points") or (
+                [p for part in f["parts"] for p in part] if "parts" in f else [f["point"]]
+            )
             for x, y in pts:
                 self.assertLess(math.hypot(x, y), limit, f["id"])
 
@@ -109,7 +119,9 @@ class WorldDataTests(unittest.TestCase):
     def test_gap_counts_match_data(self):
         g = self.w["gaps"]
         self.assertEqual(g["roads_total"], len(self.w["roads"]))
-        self.assertEqual(g["roads_without_width"], sum(1 for r in self.w["roads"] if r["width_m"]["value"] is None))
+        self.assertEqual(
+            g["roads_without_width"], sum(1 for r in self.w["roads"] if r["width_m"]["value"] is None)
+        )
 
 
 if __name__ == "__main__":

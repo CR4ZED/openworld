@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Inject a world JSON into the 2D map viewer template -> a single self-contained HTML file."""
+
 import argparse
 import json
 

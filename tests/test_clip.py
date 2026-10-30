@@ -1,4 +1,5 @@
 """Unit tests for geometry clipping in tools/build_world.py."""
+
 import os
 import sys
 import unittest
