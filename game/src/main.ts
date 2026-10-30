@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { makeCollider } from "./collision";
 import { makeControls, type Input, type Look } from "./controls";
+import { defaultQuality, saveQuality, type Quality } from "./quality";
 import { roadDrain, roadSurface, roadWidth } from "./resolve";
 import type { Pt, Road, World } from "./types";
 import { buildWorld, makeRoadLocator, setEstimateTint } from "./world";
@@ -27,15 +28,25 @@ async function main() {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: testMode });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const scene = new THREE.Scene();
-  const sky = new THREE.Color("#dfe6ea");
-  scene.background = sky;
-  scene.fog = new THREE.Fog(sky, 250, 900);
+  // sky: blue overhead fading to a pale, hazy horizon (fog uses the horizon colour so distance blends in)
+  const horizon = new THREE.Color("#e3e6e3");
+  scene.background = horizon;
+  scene.fog = new THREE.Fog(horizon, 250, 900);
+  const skyDome = makeSky(horizon, new THREE.Color("#7fa9d6"));
+  scene.add(skyDome);
   // bright tropical daylight: strong warm sun so walls facing it and walls in shade read differently
   scene.add(new THREE.HemisphereLight("#f4f8fc", "#b9a888", 1.7));
   scene.add(new THREE.AmbientLight("#ffffff", 0.6));
   const sun = new THREE.DirectionalLight("#fff3dc", 2.2);
-  sun.position.set(-250, 400, 180); // afternoon sun from the south-west
-  scene.add(sun);
+  const SUN_OFFSET = new THREE.Vector3(-120, 190, 85); // afternoon sun from the south-west
+  scene.add(sun, sun.target);
+  // shadows cover about 140 m around the player and follow them, so the shadow map stays sharp
+  sun.shadow.camera.left = sun.shadow.camera.bottom = -70;
+  sun.shadow.camera.right = sun.shadow.camera.top = 70;
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 500;
+  sun.shadow.bias = -0.0005;
+  sun.shadow.normalBias = 0.05;
 
   const built = buildWorld(world);
   scene.add(built.group);
@@ -50,6 +61,30 @@ async function main() {
   placeOnRoad(start, player, look);
 
   const controls = makeControls(canvas, look);
+  let quality: Quality = defaultQuality(controls.isTouch);
+  const qBtn = document.getElementById("btnQuality")!;
+  const applyQuality = (q: Quality) => {
+    quality = q;
+    renderer.shadowMap.enabled = q === "high";
+    sun.castShadow = q === "high";
+    const size = controls.isTouch ? 1024 : 2048;
+    sun.shadow.mapSize.set(size, size);
+    sun.shadow.map?.dispose();
+    sun.shadow.map = null;
+    renderer.setPixelRatio(q === "high" ? Math.min(devicePixelRatio, 2) : 1);
+    // shadow on/off changes the shaders: rebuild materials
+    scene.traverse((o) => {
+      const mat = (o as THREE.Mesh).material as THREE.Material | undefined;
+      if (mat) mat.needsUpdate = true;
+    });
+    qBtn.textContent = `Quality: ${q === "high" ? "High" : "Low"}`;
+    resize();
+  };
+  qBtn.addEventListener("click", () => {
+    const q = quality === "high" ? "low" : "high";
+    saveQuality(q);
+    applyQuality(q);
+  });
   setupLandscape(controls.isTouch);
   let showEstimates = false;
   const btn = document.getElementById("btnEstimates")!;
@@ -67,7 +102,7 @@ async function main() {
     camera.updateProjectionMatrix();
   };
   addEventListener("resize", resize);
-  resize();
+  applyQuality(quality);
 
   /** Advance the player by dt seconds with the given input. */
   const step = (dt: number, input: Input) => {
@@ -131,6 +166,12 @@ async function main() {
       -Math.cos(look.yaw) * Math.cos(look.pitch),
     );
     camera.lookAt(camera.position.clone().add(dir));
+    skyDome.position.copy(camera.position);
+    // keep the sun's shadow area centred on the player, snapped to whole metres to avoid shimmering
+    const cx = Math.round(player.x),
+      cz = Math.round(-player.y);
+    sun.target.position.set(cx, 0, cz);
+    sun.position.set(cx + SUN_OFFSET.x, SUN_OFFSET.y, cz + SUN_OFFSET.z);
     renderer.render(scene, camera);
     updateHud();
     frames++;
@@ -155,6 +196,31 @@ async function main() {
     }),
     player: () => ({ x: player.x, y: player.y, z: player.z, yaw: look.yaw }),
     jumps: () => jumps,
+    skyGradient: () => {
+      const col = skyDome.geometry.getAttribute("color");
+      const pos = skyDome.geometry.getAttribute("position");
+      let top = 0,
+        hor = 0;
+      for (let i = 0; i < pos.count; i++) {
+        if (pos.getY(i) > pos.getY(top)) top = i;
+        if (Math.abs(pos.getY(i)) < Math.abs(pos.getY(hor))) hor = i;
+      }
+      const rgb = (i: number) => ({ r: col.getX(i), g: col.getY(i), b: col.getZ(i) });
+      return { top: rgb(top), horizon: rgb(hor) };
+    },
+    quality: () => ({
+      quality,
+      shadows: renderer.shadowMap.enabled && sun.castShadow,
+      pixelRatio: renderer.getPixelRatio(),
+    }),
+    texturedSurfaces: () => {
+      const keys: string[] = [];
+      built.group.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshLambertMaterial | undefined;
+        if (m?.map && o.name) keys.push(o.name);
+      });
+      return keys;
+    },
     teleport: (x: number, y: number, yaw: number) => {
       player.x = x;
       player.y = y;
@@ -198,6 +264,31 @@ function setupLandscape(isTouch: boolean) {
       // not supported (e.g. iPhone Safari): the rotate prompt covers portrait instead
     }
   });
+}
+
+/** A big sphere around the camera, blue overhead and pale at the horizon. One draw call, ignores fog. */
+function makeSky(horizon: THREE.Color, zenith: THREE.Color) {
+  const geo = new THREE.SphereGeometry(1200, 32, 16);
+  const pos = geo.getAttribute("position");
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const h = Math.max(0, pos.getY(i) / 1200); // 0 at horizon, 1 straight up
+    c.copy(horizon)
+      .lerp(zenith, Math.pow(h, 0.6))
+      .toArray(colors, i * 3);
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.BackSide,
+    fog: false,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = "sky";
+  mesh.renderOrder = -1;
+  return mesh;
 }
 
 /** Put the player in the middle of a road, facing along it. */
