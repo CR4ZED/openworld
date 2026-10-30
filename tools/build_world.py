@@ -321,6 +321,8 @@ def apply_owner_notes(world, notes_path):
             unknown.append(aid)
     if unknown:
         raise SystemExit(f"owner notes refer to features not in this map: {unknown}")
+    for text in notes.get("area_notes", []):
+        world["meta"].setdefault("area_notes", []).append({"value": text, "source": src})
     world["meta"].setdefault("surveys", []).append({"source": src, "note": notes.get("note", "")})
     world["colony_boundary"] = notes.get("colony_boundary")
 

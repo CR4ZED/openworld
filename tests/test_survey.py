@@ -186,7 +186,41 @@ class PlaceTests(unittest.TestCase):
         self.assertEqual(w["gaps"]["places_surveyed"], 2)
 
 
+# Every option ever shipped to the phone form. Surveys saved with these must keep importing, so options can be
+# added but never renamed or removed. Extend this list when adding options; never shrink it.
+SHIPPED_OPTIONS = {
+    "surface": [
+        "tar (asphalt)",
+        "concrete",
+        "paving blocks",
+        "gravel",
+        "mud",
+        "mixed or broken",
+        "red mud / moram",
+    ],
+    "drain": [
+        "none",
+        "open, one side",
+        "open, both sides",
+        "covered, one side",
+        "covered, both sides",
+        "mixed",
+    ],
+    "footpath": ["none", "one side", "both sides"],
+    "width_method": ["tape", "pacing", "estimate"],
+    "edges": ["compound walls", "mud shoulder", "kerb", "open land", "mixed"],
+}
+
+
 class SchemaTests(unittest.TestCase):
+    def test_shipped_options_still_accepted(self):
+        """Surveys already saved on phones must still import after schema changes."""
+        with open(os.path.join(HERE, "..", "data", "survey", "street_survey_schema.json")) as f:
+            fields = {fd["key"]: fd for fd in json.load(f)["fields"]}
+        for key, opts in SHIPPED_OPTIONS.items():
+            for o in opts:
+                self.assertIn(o, fields[key]["options"], f"{key}: option {o!r} was removed or renamed")
+
     def test_schema_fields_are_well_formed(self):
         with open(os.path.join(HERE, "..", "data", "survey", "street_survey_schema.json")) as f:
             schema = json.load(f)

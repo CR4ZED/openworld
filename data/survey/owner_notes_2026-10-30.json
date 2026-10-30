@@ -21,5 +21,8 @@
     "north": "ADB Road (unconfirmed whether the colony reaches it)",
     "east": "road-362425739 / road-362423153 (unconfirmed)",
     "south": null
-  }
+  },
+  "area_notes": [
+    "Most roads in and around FCI Colony are concrete (CC) or red mud (moram). Use as the look for roads not yet surveyed; per-street surveys always win."
+  ]
 }

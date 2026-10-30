@@ -62,6 +62,17 @@ class WorldDataTests(unittest.TestCase):
                 if k in f:
                     self.assertTrue(f[k]["source"].startswith("survey:"), f["id"])
 
+    def test_area_notes_are_owner_sourced(self):
+        for n in self.w["meta"].get("area_notes", []):
+            self.assertTrue(n["source"].startswith("survey:"), n)
+
+    def test_area_notes_never_fill_road_attributes(self):
+        """An area-wide remark is not a per-street measurement: surfaces stay unknown unless surveyed."""
+        for r in self.w["roads"]:
+            src = r["surface"]["source"]
+            if src is not None:
+                self.assertTrue(src.startswith(("osm:", "survey:")), r["id"])
+
     def test_restricted_areas_have_no_building_detail(self):
         """Sensitive sites (e.g. ONGC) must never carry modelled detail."""
         for a in self.w["areas"]:
