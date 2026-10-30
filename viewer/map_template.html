@@ -225,6 +225,16 @@
           width: 380px;
         }
       }
+      a.btnlink {
+        font: inherit;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        border-radius: 8px;
+        padding: 7px 11px;
+        text-decoration: none;
+        font-weight: 600;
+      }
       .sv-field {
         display: block;
         margin: 10px 0;
@@ -361,6 +371,7 @@
   <body>
     <header>
       <h1>__TITLE__ <span class="ver">· 2D map v0.4</span></h1>
+      <a id="lnk3d" href="./game/" class="btnlink" aria-label="Walk around in 3D">3D</a>
       <button id="btnSurvey" aria-label="My street survey">Survey</button>
       <button id="btnGaps" aria-label="Survey gaps">Gaps</button>
       <button id="btnLegend" aria-label="Legend">Legend</button>

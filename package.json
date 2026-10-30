@@ -1,29 +1,36 @@
 {
   "name": "openworld",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Open-world multiplayer game set in real Indian places, starting with FCI Colony, Kakinada",
   "type": "module",
   "scripts": {
     "build:world": "python3 tools/build_world.py --osm data/raw/fci_colony_1km.osm --lat 17.0143794 --lon 82.2647444 --radius 1000 --name \"FCI Colony, Vakalapudi, Kakinada\" --notes data/survey/owner_notes_2026-10-30.json --google-buildings data/raw/buildings/google_fci_area.csv --survey-dir data/survey --out data/world/fci_colony.json",
     "build:viewer": "python3 tools/build_viewer.py --world data/world/fci_colony.json --out viewer/dist/fci_colony_map.html",
-    "build": "mkdir -p data/world viewer/dist && npm run build:world && npm run build:viewer",
+    "build": "mkdir -p data/world viewer/dist && npm run build:world && npm run build:viewer && npm run build:game",
     "test:data": "python3 -m unittest discover -s tests -v",
-    "test:e2e": "node tests/e2e_map.mjs viewer/dist/fci_colony_map.html test-results",
+    "test:e2e": "node tests/e2e_map.mjs viewer/dist/fci_colony_map.html test-results && node tests/e2e_game.mjs game/dist test-results",
     "test": "npm run build && npm run test:data && npm run test:e2e",
     "fetch": "bash tools/fetch_data.sh",
-    "lint": "npm run lint:py && npm run lint:js && npm run format:check && npm run lint:sh",
+    "lint": "npm run lint:py && npm run lint:ts && npm run lint:js && npm run format:check && npm run lint:sh",
     "lint:py": "ruff check . && ruff format --check .",
     "lint:js": "eslint .",
     "lint:sh": "shellcheck tools/*.sh",
     "format:check": "prettier --check .",
-    "format": "ruff format . && ruff check --fix . && prettier --write ."
+    "format": "ruff format . && ruff check --fix . && prettier --write .",
+    "build:game": "mkdir -p game/public && cp data/world/fci_colony.json game/public/world.json && vite build --config game/vite.config.ts --logLevel warn",
+    "lint:ts": "tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@types/three": "^0.187.0",
     "eslint": "^9.39.5",
     "globals": "^15.15.0",
     "playwright": "1.63.0",
-    "prettier": "^3.9.10"
+    "prettier": "^3.9.10",
+    "three": "^0.187.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vite": "^8.3.5"
   }
 }

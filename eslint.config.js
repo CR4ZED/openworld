@@ -1,8 +1,9 @@
 import js from "@eslint/js";
 import globals from "globals";
+import tseslint from "typescript-eslint";
 
 export default [
-  { ignores: ["node_modules/", "viewer/dist/", "test-results/", "data/"] },
+  { ignores: ["node_modules/", "viewer/dist/", "game/dist/", "test-results/", "data/"] },
   js.configs.recommended,
   {
     files: ["**/*.{js,mjs}"],
@@ -17,5 +18,11 @@ export default [
       "no-var": "error",
       "prefer-const": "error",
     },
+  },
+  ...tseslint.configs.recommended.map((c) => ({ ...c, files: ["game/**/*.ts"] })),
+  {
+    files: ["game/**/*.ts"],
+    languageOptions: { globals: globals.browser },
+    rules: { eqeqeq: ["error", "always"], "prefer-const": "error" },
   },
 ];

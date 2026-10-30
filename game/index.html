@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
+    <title>FCI Colony · 3D</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="scene" aria-label="3D view of the colony"></canvas>
+    <header id="hud">
+      <div class="title">FCI Colony <span class="ver">· 3D v0.1</span></div>
+      <div id="where" aria-live="polite">Loading the colony…</div>
+      <div class="actions">
+        <button id="btnEstimates" aria-pressed="false">Show estimates</button>
+        <a id="lnkMap" href="../">2D map</a>
+      </div>
+    </header>
+    <div id="joystick" aria-label="Move"><div id="stick"></div></div>
+    <div id="help">Move: WASD / arrows · Look: drag · Run: Shift</div>
+    <div id="fps"></div>
+    <div id="attrib">
+      Roads ©
+      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
+      (ODbL) · Buildings:
+      <a href="https://sites.research.google/gr/open-buildings/" target="_blank" rel="noopener"
+        >Google Open Buildings</a
+      >
+      (CC BY 4.0)
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

@@ -7,6 +7,7 @@ Living documents kept in Claude (owner access):
 - 2D map (latest build): https://claude.ai/artifact/4JojChQnjstGmU46YNsXju
 - Public site (GitHub Pages, once enabled): https://cr4zed.github.io/openworld/ — rebuilt and re-tested on every change to main;
   the merged PR gets a comment with the live link (or a "not deployed" note if checks failed).
+- 3D world: https://cr4zed.github.io/openworld/game/ (walk with WASD/joystick; "Show estimates" highlights guessed roads)
 - PR previews: add the `preview` label to a PR -> https://cr4zed.github.io/openworld/pr-preview/pr-<number>/
   (updates on every push, removed when the label is removed or the PR closes; link posted on the PR).
 

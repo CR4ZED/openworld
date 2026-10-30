@@ -33,6 +33,17 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - `npm run format` — auto-format everything before committing
 - `npm run fetch` — re-download raw data (needs network access to openstreetmap.org and dataset hosts)
 
+## 3D game (game/)
+
+- Vite + TypeScript + three.js. `npm run build:game` copies the world JSON to `game/public/world.json` and builds
+  `game/dist`, published at `/openworld/game/` (and in PR previews). Coordinates: data x east / y north (m, 1:1);
+  three.js x east, y up, z = -north.
+- Shows known values first, otherwise the labelled estimate (`game/src/resolve.ts`). "Show estimates" tints roads
+  whose width or surface is estimated. Restricted areas: flat ground + boundary wall only, nothing inside.
+- Performance budget: at most 40 draw calls (geometry merged per material). `tests/e2e_game.mjs` checks the
+  picture really renders (not blank; sky above, ground below), walking speed, wall collision, budgets.
+- Building floors are estimates (estimate:v1) by footprint until the owner surveys them.
+
 ## Estimates for unsurveyed roads (owner-approved 2026-10-30)
 
 - `tools/estimates.py` estimates width, surface, drain, footpath and other street fields from surroundings
@@ -57,6 +68,11 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Survey fields are defined once in `data/survey/street_survey_schema.json`, shared by the form and the importer.
 
 ## Lessons learned
+
+- 2026-10-30: wall sliding along map axes let the player slip around small sheds; slide along the wall's own
+  direction instead. Wall test walks head-on at a long wall and checks it stops (and no sideways drift).
+- 2026-10-30: a "number of distinct colours" check was too crude for a close-up phone view; replaced with checks
+  that matter (not blank; sky at top, ground/road at bottom). Thresholds must test a real property.
 
 - 2026-10-30: owner: only highways are tar (ADB Road, road in front of ONGC); other roads are concrete, red mud or
   mixes. Recorded per road in owner notes; survey gained mixed-surface options.

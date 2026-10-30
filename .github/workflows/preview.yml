@@ -41,6 +41,7 @@ jobs:
         run: |
           mkdir -p site
           cp viewer/dist/fci_colony_map.html site/index.html
+          cp -r game/dist site/game
           touch site/.nojekyll
       - name: Publish preview and comment on the PR
         uses: rossjrw/pr-preview-action@v1

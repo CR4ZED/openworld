@@ -7,3 +7,5 @@ data/world/
 data/raw/buildings/*.csv.gz
 data/raw/buildings/ms_links.csv
 .DS_Store
+game/dist/
+game/public/world.json
