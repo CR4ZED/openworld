@@ -12,8 +12,11 @@ Usage:
 """
 
 import argparse
+import glob
 import json
 import math
+import os
+import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from itertools import pairwise
@@ -388,8 +391,93 @@ def add_google_buildings(world, csv_path, lat0, lon0, radius):
     )
 
 
+SURVEY_SCHEMA = os.path.join(os.path.dirname(__file__), "..", "data", "survey", "street_survey_schema.json")
+
+
+class SurveyError(ValueError):
+    pass
+
+
+def validate_street_survey(survey, road_ids, schema_path=SURVEY_SCHEMA):
+    """Check a street survey against the shared schema. Raises SurveyError listing every problem."""
+    with open(schema_path) as f:
+        schema = json.load(f)
+    fields = {fd["key"]: fd for fd in schema["fields"]}
+    problems = []
+    if survey.get("format") != schema["format"]:
+        problems.append(f"format must be {schema['format']!r}, got {survey.get('format')!r}")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(survey.get("date", ""))):
+        problems.append("date must be YYYY-MM-DD")
+    if not re.fullmatch(r"[a-z0-9-]{1,40}", str(survey.get("surveyor", ""))):
+        problems.append("surveyor must be a short lowercase id, e.g. 'owner'")
+    streets = survey.get("streets")
+    if not isinstance(streets, dict) or not streets:
+        problems.append("streets must be a non-empty object")
+        streets = {}
+    for rid, entry in streets.items():
+        if rid not in road_ids:
+            problems.append(f"{rid}: no such road in this map")
+            continue
+        if not isinstance(entry, dict) or not entry:
+            problems.append(f"{rid}: empty entry")
+            continue
+        for key, value in entry.items():
+            fd = fields.get(key)
+            if fd is None:
+                problems.append(f"{rid}.{key}: unknown field")
+            elif fd["type"] in ("number", "integer"):
+                kinds = (int,) if fd["type"] == "integer" else (int, float)
+                ok = not isinstance(value, bool) and isinstance(value, kinds)
+                if not ok or not fd["min"] <= value <= fd["max"]:
+                    what = "whole number" if fd["type"] == "integer" else "number"
+                    problems.append(f"{rid}.{key}: {value!r} is not a {what} from {fd['min']} to {fd['max']}")
+            elif fd["type"] == "choice":
+                if value not in fd["options"]:
+                    problems.append(f"{rid}.{key}: {value!r} is not one of {fd['options']}")
+            elif fd["type"] == "text":
+                if not isinstance(value, str) or len(value) > fd["max_length"]:
+                    problems.append(f"{rid}.{key}: text too long or not text")
+    if problems:
+        raise SurveyError("street survey rejected:\n  " + "\n  ".join(problems))
+    return fields
+
+
+def apply_street_survey(world, survey_path):
+    """Merge a validated street survey. Core attributes (width, surface, drain, footpath) get the
+    survey as their source; every other field is kept under road['survey'] with the same source."""
+    with open(survey_path) as f:
+        survey = json.load(f)
+    roads = {r["id"]: r for r in world["roads"]}
+    fields = validate_street_survey(survey, set(roads))
+    src = f"survey:{survey['surveyor']}-{survey['date']}"
+    for rid, entry in survey["streets"].items():
+        road = roads[rid]
+        for key, value in entry.items():
+            attr_name = fields[key].get("road_attr")
+            if attr_name:
+                road[attr_name] = {"value": value, "source": src}
+            else:
+                road.setdefault("survey", {})[key] = {"value": value, "source": src}
+    note = f"street survey, {len(survey['streets'])} roads"
+    world["meta"].setdefault("surveys", []).append({"source": src, "note": note})
+    g = world["gaps"]
+    for a in ROAD_SURVEY_ATTRS:
+        key = "width_m" if a == "width" else a
+        g[f"roads_without_{a}"] = sum(1 for r in world["roads"] if r[key]["value"] is None)
+    g["roads_surveyed"] = sum(
+        1
+        for r in world["roads"]
+        if any(
+            (r[k]["source"] or "").startswith("survey:") for k in ("width_m", "surface", "drain", "footpath")
+        )
+        or "survey" in r
+    )
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--street-survey", action="append", default=[], help="street survey JSON (repeatable)")
+    ap.add_argument("--survey-dir", help="also load every streets_*.json in this folder, oldest first")
     ap.add_argument("--google-buildings", help="Google Open Buildings CSV already filtered to the area")
     ap.add_argument("--notes", action="append", default=[], help="owner survey notes JSON (repeatable)")
     ap.add_argument("--osm", required=True)
@@ -404,6 +492,12 @@ def main():
         apply_owner_notes(world, n)
     if a.google_buildings:
         add_google_buildings(world, a.google_buildings, a.lat, a.lon, a.radius)
+    surveys = list(a.street_survey)
+    if a.survey_dir:
+        surveys += sorted(glob.glob(os.path.join(a.survey_dir, "streets_*.json")))
+    for sv in surveys:  # later surveys override earlier ones for the same field
+        apply_street_survey(world, sv)
+        print(f"applied street survey {sv}")
     with open(a.out, "w") as f:
         json.dump(world, f, ensure_ascii=False, separators=(",", ":"))
     print(json.dumps(world["gaps"], indent=1))

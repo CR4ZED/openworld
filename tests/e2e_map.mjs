@@ -3,6 +3,8 @@
 import { chromium } from "playwright";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
+import { execFileSync } from "node:child_process";
 
 const file = path.resolve(process.argv[2]);
 const outDir = path.resolve(process.argv[3] || "test-results");
@@ -126,6 +128,111 @@ for (const [label, opts] of [
   await page.click("#btnGaps");
   check((await page.textContent("#sheet")).includes("What the map knows"), `[${label}] gaps panel opens`);
   await page.screenshot({ path: path.join(outDir, `${label}_gaps.png`) });
+
+  // ---- street survey form (phone flow) ----
+  const laneId = await page.evaluate(() => {
+    const w = JSON.parse(document.getElementById("world-data").textContent);
+    return w.roads.find((r) => r.osm_class === "residential" && r.width_m.value === null).id;
+  });
+  await page.evaluate((i) => window.__TEST__.select(i), laneId);
+  check(
+    (await page.textContent("#btnSurveyRoad")) === "Survey this street",
+    `[${label}] road sheet offers "Survey this street"`,
+  );
+  await page.click("#btnSurveyRoad");
+  check((await page.locator("#sv-form select").count()) >= 8, `[${label}] survey form shows choice fields`);
+  // impossible width is refused, nothing saved
+  await page.fill("#sv-width_m", "0.5");
+  await page.click("#sv-save");
+  check(
+    (await page.textContent('[data-err="width_m"]')).includes("from 1.5 to 40"),
+    `[${label}] form refuses an impossible width`,
+  );
+  check(
+    (await page.evaluate(() => window.OpenworldSurvey.count())) === 0,
+    `[${label}] nothing saved while invalid`,
+  );
+  check(
+    (await page.evaluate(() => document.activeElement.id)) === "sv-width_m",
+    `[${label}] form jumps to the field that needs fixing`,
+  );
+  await page.screenshot({ path: path.join(outDir, `${label}_survey_form.png`) });
+  // valid entry
+  await page.fill("#sv-width_m", "4.5");
+  await page.selectOption("#sv-width_method", "tape");
+  await page.selectOption("#sv-surface", "concrete");
+  await page.selectOption("#sv-drain", "open, one side");
+  await page.selectOption("#sv-footpath", "none");
+  await page.fill("#sv-speed_breakers", "2");
+  await page.fill("#sv-notes", "Milk booth at the corner <b>test</b>");
+  await page.click("#sv-save");
+  check((await page.textContent("#sheet")).includes("Saved on this phone"), `[${label}] survey saved`);
+  check((await page.textContent("#btnSurvey")).includes("1"), `[${label}] header shows 1 street surveyed`);
+  check(
+    (await page.locator(`[data-my-survey="${laneId}"]`).count()) === 1,
+    `[${label}] surveyed street highlighted on the map`,
+  );
+  // survives a reload (kept on the phone)
+  await page.reload();
+  await page.waitForFunction(() => window.__TEST__ && window.__TEST__.ready);
+  check((await page.textContent("#btnSurvey")).includes("1"), `[${label}] survey kept after reload`);
+  // export panel
+  await page.click("#btnSurvey");
+  const exported = await page.inputValue("#sv-out");
+  const parsed = JSON.parse(exported);
+  check(
+    parsed.format === "openworld-street-survey/1" && parsed.streets[laneId].width_m === 4.5,
+    `[${label}] exported survey has the street and its width`,
+  );
+  check(
+    !(await page.innerHTML("#sheet")).includes("<b>test</b>"),
+    `[${label}] user text is escaped in the panel`,
+  );
+  await page.screenshot({ path: path.join(outDir, `${label}_survey_panel.png`) });
+  if (label === "desktop") {
+    // round trip: what the phone exports must be accepted by the importer and drawn at true width
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "survey-"));
+    const svFile = path.join(tmp, "survey.json");
+    fs.writeFileSync(svFile, exported);
+    const worldOut = path.join(tmp, "world.json");
+    const htmlOut = path.join(tmp, "map.html");
+    const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const args = pkg.scripts["build:world"]
+      .match(/"[^"]*"|\S+/g)
+      .slice(2)
+      .map((a) => a.replace(/^"|"$/g, ""));
+    const outIdx = args.indexOf("--out");
+    args[outIdx + 1] = worldOut;
+    execFileSync("python3", ["tools/build_world.py", ...args, "--street-survey", svFile], { stdio: "pipe" });
+    execFileSync("python3", ["tools/build_viewer.py", "--world", worldOut, "--out", htmlOut], {
+      stdio: "pipe",
+    });
+    const p2 = await browser.newPage(opts);
+    await p2.goto("file://" + htmlOut);
+    await p2.waitForFunction(() => window.__TEST__ && window.__TEST__.ready);
+    check(
+      (await p2.locator('[data-width-m="4.5"]').count()) === 1,
+      "[round-trip] importer accepts the phone export; street drawn at 4.5 m",
+    );
+    await p2.evaluate((i) => window.__TEST__.select(i), laneId);
+    const t2 = await p2.textContent("#sheet");
+    check(
+      /Road width\s*4.5 m/.test(t2) && t2.includes("your survey"),
+      "[round-trip] road shows surveyed width with survey as source",
+    );
+    await p2.close();
+  }
+  // clear all needs two taps
+  await page.click("#sv-clear");
+  check(
+    (await page.evaluate(() => window.OpenworldSurvey.count())) === 1,
+    `[${label}] first tap does not delete`,
+  );
+  await page.click("#sv-clear");
+  check(
+    (await page.evaluate(() => window.OpenworldSurvey.count())) === 0,
+    `[${label}] second tap clears all`,
+  );
   await page.close();
 }
 await browser.close();

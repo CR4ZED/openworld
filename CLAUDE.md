@@ -33,8 +33,17 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - `npm run format` — auto-format everything before committing
 - `npm run fetch` — re-download raw data (needs network access to openstreetmap.org and dataset hosts)
 
+## Street surveys
+
+- The owner surveys streets with the form in the 2D map (tap a road, "Survey this street", then Survey panel, "Copy for Claude").
+- Save pasted results as `data/survey/streets_<YYYY-MM-DD>.json`. `npm run build` loads every `streets_*.json`
+  (oldest first; later values win). The importer rejects invalid entries: fix with the owner, never by guessing.
+- Survey fields are defined once in `data/survey/street_survey_schema.json`, shared by the form and the importer.
+
 ## Lessons learned
 
 - 2026-10-30: browser tests passed while the map rendered as a 300x150 thumbnail (SVG had no size).
   Added a check that the map fills the screen and the 1 km circle is large. Always assert visible geometry.
+- 2026-10-30: eslint was not checking the map script while it lived inside the HTML; moving it to viewer/map.js
+  exposed two unused variables. Keep page scripts in .js files so they are linted.
 - 2026-10-30: a city-wide OSM land-use polygon reached 6.6 km out; geometry is now clipped and range-checked.

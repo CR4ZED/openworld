@@ -1,11 +1,11 @@
 {
   "name": "openworld",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Open-world multiplayer game set in real Indian places, starting with FCI Colony, Kakinada",
   "type": "module",
   "scripts": {
-    "build:world": "python3 tools/build_world.py --osm data/raw/fci_colony_1km.osm --lat 17.0143794 --lon 82.2647444 --radius 1000 --name \"FCI Colony, Vakalapudi, Kakinada\" --notes data/survey/owner_notes_2026-10-30.json --google-buildings data/raw/buildings/google_fci_area.csv --out data/world/fci_colony.json",
+    "build:world": "python3 tools/build_world.py --osm data/raw/fci_colony_1km.osm --lat 17.0143794 --lon 82.2647444 --radius 1000 --name \"FCI Colony, Vakalapudi, Kakinada\" --notes data/survey/owner_notes_2026-10-30.json --google-buildings data/raw/buildings/google_fci_area.csv --survey-dir data/survey --out data/world/fci_colony.json",
     "build:viewer": "python3 tools/build_viewer.py --world data/world/fci_colony.json --out viewer/dist/fci_colony_map.html",
     "build": "mkdir -p data/world viewer/dist && npm run build:world && npm run build:viewer",
     "test:data": "python3 -m unittest discover -s tests -v",
