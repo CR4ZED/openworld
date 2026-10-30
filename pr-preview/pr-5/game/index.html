@@ -10,8 +10,8 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <script type="module" crossorigin src="./assets/index-CZ19NNTC.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-B_Ew5_u5.css">
+    <script type="module" crossorigin src="./assets/index-Dv_DH7yJ.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CTHSlzaC.css">
   </head>
   <body>
     <canvas id="scene" aria-label="3D view of the colony"></canvas>
@@ -24,7 +24,11 @@
       </div>
     </header>
     <div id="joystick" aria-label="Move"><div id="stick"></div></div>
-    <div id="help">Move: WASD / arrows · Look: drag · Run: Shift</div>
+    <div id="crosshair" aria-hidden="true"></div>
+    <div id="help">
+      <span class="unlocked">Click the view to look around with the mouse</span>
+      <span class="when-locked">Esc to free the mouse</span> · Move: WASD / arrows · Run: Shift
+    </div>
     <div id="fps"></div>
     <div id="attrib">
       Roads ©
