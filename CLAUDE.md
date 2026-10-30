@@ -33,6 +33,17 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - `npm run format` — auto-format everything before committing
 - `npm run fetch` — re-download raw data (needs network access to openstreetmap.org and dataset hosts)
 
+## Estimates for unsurveyed roads (owner-approved 2026-10-30)
+
+- `tools/estimates.py` estimates width, surface, drain, footpath and other street fields from surroundings
+  (building gaps, how built-up, road type), the owner's surveyed streets of the same kind, owner statements
+  and docs/reference/ research.
+- Estimates live only in `road.estimate[field] = {value, source: "estimate:v1", basis, confidence}`. They never fill
+  core attributes, never replace survey values, and are never made for restricted areas.
+  `tests/test_estimates.py` enforces this.
+- Widths err narrow (owner: never widen roads): the narrowest surveyed ratio of the same road kind, never wider
+  than the buildings allow. The map shows estimates with a different look and an "estimate" label.
+
 ## Street surveys
 
 - The owner surveys streets with the form in the 2D map (tap a road, "Survey this street", then Survey panel, "Copy for Claude").

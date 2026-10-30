@@ -147,6 +147,25 @@
     hit.style.cursor = "pointer";
     byId[r.id] = { f: r, type: "road", d };
   }
+  // Unsurveyed roads with an estimated width: lighter band, so estimates never look like survey data.
+  for (const r of W.roads) {
+    const ew = r.width_m.value === null && r.estimate && r.estimate.width_m;
+    if (ew)
+      el(
+        "path",
+        {
+          d: r.parts.map(pathD).join(""),
+          fill: "none",
+          stroke: "#e2d8c4",
+          "stroke-width": ew.value,
+          "stroke-linecap": "butt",
+          "stroke-linejoin": "round",
+          "pointer-events": "none",
+          "data-est-width-m": ew.value,
+        },
+        layerWidth,
+      );
+  }
   // Surveyed roads: draw the real width (stroke in metres, so it scales with zoom).
   for (const r of W.roads)
     if (r.width_m.value !== null) {
@@ -155,7 +174,7 @@
         {
           d: r.parts.map(pathD).join(""),
           fill: "none",
-          stroke: "#d8cfbd",
+          stroke: "#c9b994",
           "stroke-width": r.width_m.value,
           "stroke-linecap": "butt",
           "stroke-linejoin": "round",
@@ -593,6 +612,14 @@
     a.value === null || a.value === undefined
       ? '<span class="unknown">Unknown &middot; needs survey</span>'
       : `<span class="known">${fmt ? fmt(a.value) : a.value}</span><div class="src">from ${osmLink(a.source)}</div>`;
+  const fmtVal = (v, unit) => (unit ? `${v} ${unit}` : v);
+  /** An estimate line under an unknown value: clearly marked, with its reason. */
+  const estLine = (e, unit) =>
+    e
+      ? `<div class="est">&asymp; ${fmtVal(e.value, unit)} <span class="est-tag">estimate &middot; ${e.confidence} confidence</span><div class="src">${e.basis}</div></div>`
+      : "";
+  const withEst = (f, key, fmt, unit) =>
+    val(f[key], fmt) + (f[key].value === null ? estLine((f.estimate || {})[key], unit) : "");
   function pick(e) {
     const t = document.elementFromPoint(e.clientX, e.clientY);
     const mine = t && t.closest("[data-place-id]");
@@ -623,16 +650,20 @@
         layerSel,
       );
       html = `<h2>${f.name.value || "Unnamed " + f.class.toLowerCase()}</h2><div class="sub">${f.class} &middot; ${Math.round(len(f.parts))} m in this map</div><table>
-  <tr><td>Road width</td><td>${val(f.width_m, (v) => v + " m")}</td></tr>
-  <tr><td>Surface</td><td>${val(f.surface)}</td></tr>
-  <tr><td>Drain</td><td>${val(f.drain)}</td></tr>
-  <tr><td>Footpath</td><td>${val(f.footpath)}</td></tr>
+  <tr><td>Road width</td><td>${withEst(f, "width_m", (v) => v + " m", "m")}</td></tr>
+  <tr><td>Surface</td><td>${withEst(f, "surface")}</td></tr>
+  <tr><td>Drain</td><td>${withEst(f, "drain")}</td></tr>
+  <tr><td>Footpath</td><td>${withEst(f, "footpath")}</td></tr>
   <tr><td>Lanes</td><td>${val(f.lanes)}</td></tr>
   <tr><td>One-way</td><td>${val(f.oneway)}</td></tr>
   <tr><td>Map source</td><td>${osmLink(f.source)}</td></tr>
   ${(f.notes || []).map((n) => `<tr><td>Your note</td><td><span class="known">${n.value}</span><div class="src">owner survey ${n.source.split("-").slice(1).join("-")}</div></td></tr>`).join("")}
   ${Object.entries(f.survey || {})
     .map(([k, v]) => `<tr><td>${k.replace(/_/g, " ")}</td><td>${val(v)}</td></tr>`)
+    .join("")}
+  ${Object.entries(f.estimate || {})
+    .filter(([k]) => !["width_m", "surface", "drain", "footpath"].includes(k))
+    .map(([k, e]) => `<tr><td>${k.replace(/_/g, " ")}</td><td>${estLine(e)}</td></tr>`)
     .join("")}</table>
   ${
     f.width_check && f.width_check.samples
@@ -648,7 +679,7 @@
   }</button></div>
   <div class="note">${
     f.width_m.value === null
-      ? "Line thickness shows the road type only. Real width is drawn after it is surveyed."
+      ? "Values marked &asymp; are estimates from the surroundings and your other surveys. Survey this street to replace them."
       : `Drawn at its surveyed width: ${f.width_m.value} m.`
   }</div>`;
     } else if (item.type === "area") {
@@ -769,6 +800,7 @@
 <div class="stat"><span>Drain known</span><b class="unknown">${g.roads_total - g.roads_without_drain}</b></div>
 <div class="stat"><span>Footpath known</span><b class="unknown">${g.roads_total - g.roads_without_footpath}</b></div>
 <div class="stat"><span>Surveyed widths to re-check</span><b class="${g.roads_width_to_recheck ? "unknown" : "known"}">${g.roads_width_to_recheck || 0}</b></div>
+<div class="stat"><span>Roads with estimates (survey to confirm)</span><b class="unknown">${g.roads_with_estimates || 0}</b></div>
 <div class="stat"><span>Roads surveyed</span><b class="${g.roads_surveyed ? "known" : "unknown"}">${g.roads_surveyed || 0}</b></div>
 <div class="stat"><span>Buildings mapped</span><b class="known">${g.buildings_mapped}</b></div>
 <div class="stat"><span>Buildings to double-check</span><b class="unknown">${g.buildings_low_confidence || 0}</b></div>
@@ -793,6 +825,8 @@
 <div class="legend-row"><svg width="34" height="14"><circle cx="17" cy="7" r="5" fill="#1d6fd8" stroke="#fff" stroke-width="2"/></svg>Place (hospital, theatre...)</div>
 <div class="legend-row">${sw("#1d6fd8", 2, "1 5")}Road you described (owner note)</div>
 <div class="legend-row">${sw("#15803d", 4)}Street you surveyed (not sent yet)</div>
+<div class="legend-row">${sw("#c9b994", 9)}Road at its surveyed width</div>
+<div class="legend-row">${sw("#e2d8c4", 9)}Road at its estimated width (survey to confirm)</div>
 <div class="legend-row"><svg width="34" height="16"><path d="M17 15c-5 -7 -8 -10 -8 -14a8 8 0 0 1 16 0c0 4 -3 7 -8 14z" transform="translate(0 -1)" fill="#15803d" stroke="#fff" stroke-width="1.5"/></svg>Place you pinned (not sent yet)</div>
 <div class="legend-row"><svg width="34" height="14"><rect x="6" y="1" width="22" height="12" fill="#efe3e3" stroke="#b45454"/><line x1="8" y1="13" x2="20" y2="1" stroke="#c98b8b" stroke-width="3"/></svg>Restricted area (never modelled)</div>
 <div class="legend-row"><svg width="34" height="14"><circle cx="17" cy="7" r="6" fill="none" stroke="#8b8577" stroke-dasharray="4 3"/></svg>1 km radius around the pin</div>
