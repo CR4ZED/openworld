@@ -4,6 +4,7 @@ export interface Input {
   forward: number; // -1..1
   strafe: number; // -1..1 (right positive)
   run: boolean;
+  jump?: boolean; // true once per press of Space / the Jump button
 }
 
 export interface Look {
@@ -17,7 +18,19 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
   const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
   if (isTouch) document.body.classList.add("touch");
 
-  addEventListener("keydown", (e) => keys.add(e.code));
+  let jumpPressed = false;
+  addEventListener("keydown", (e) => {
+    keys.add(e.code);
+    if (e.code === "Space") {
+      e.preventDefault(); // don't scroll the page
+      if (!e.repeat) jumpPressed = true; // one jump per press, holding Space doesn't bounce
+    }
+  });
+  const jumpBtn = document.getElementById("btnJump");
+  jumpBtn?.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    jumpPressed = true;
+  });
   addEventListener("keyup", (e) => keys.delete(e.code));
   addEventListener("blur", () => keys.clear());
 
@@ -99,10 +112,13 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
     const k = (c: string) => (keys.has(c) ? 1 : 0);
     const forward = k("KeyW") + k("ArrowUp") - k("KeyS") - k("ArrowDown") - stick.y;
     const strafe = k("KeyD") + k("ArrowRight") - k("KeyA") - k("ArrowLeft") + stick.x;
+    const jump = jumpPressed;
+    jumpPressed = false;
     return {
       forward: Math.max(-1, Math.min(1, forward)),
       strafe: Math.max(-1, Math.min(1, strafe)),
       run: keys.has("ShiftLeft") || keys.has("ShiftRight") || Math.hypot(stick.x, stick.y) > 0.95,
+      jump,
     };
   };
   return { read, isTouch, turn: (dx: number, dy: number) => turn(dx, dy, MOUSE_SENSITIVITY), locked };

@@ -45,6 +45,8 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Building floors are estimates (estimate:v1) by footprint until the owner surveys them.
 - Desktop look = mouse movement (owner, 2026-10-31): click the view to capture the mouse (pointer lock), Esc frees
   it; drag is only a fallback. Overlays on the view (crosshair) must have pointer-events: none.
+- Jump (owner, 2026-10-31): Space on desktop, Jump button on phones. Human-scale: 3.0 m/s take-off, g = 9.81
+  (about 0.46 m high, ~0.6 s in the air); only from the ground; one jump per press.
 - Phones play in landscape (owner, 2026-10-30). Android: Play button -> fullscreen + orientation lock. iPhone Safari
   cannot lock orientation, so portrait shows a full-screen "turn your phone sideways" prompt and the world waits.
   Tests run the phone in landscape and check the portrait prompt.
@@ -73,6 +75,10 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Survey fields are defined once in `data/survey/street_survey_schema.json`, shared by the form and the importer.
 
 ## Lessons learned
+
+- 2026-10-31: the test browser renders slowly, so the live game runs in slow motion there; a timing-based check
+  ("landed after 1.5 s") failed while the game was right. Test real-time behaviour by counting events (jumps
+  started), and test timing with the deterministic step() hook.
 
 - 2026-10-30: wall sliding along map axes let the player slip around small sheds; slide along the wall's own
   direction instead. Wall test walks head-on at a long wall and checks it stops (and no sideways drift).

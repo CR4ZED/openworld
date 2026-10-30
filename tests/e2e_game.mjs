@@ -240,6 +240,56 @@ for (const [label, opts] of [
     );
   }
 
+  // jumping: a normal standing jump (~0.46 m), lands in about 0.6 s, no jumping again in mid-air
+  const jump = await page.evaluate(() => {
+    const g = window.__GAME__;
+    const heights = [];
+    g.step(1 / 30, { forward: 0, strafe: 0, run: false, jump: true });
+    for (let i = 0; i < 40; i++) {
+      // try to jump again mid-air at 0.2 s
+      g.step(1 / 30, { forward: 0, strafe: 0, run: false, jump: i === 5 });
+      heights.push(g.player().z);
+    }
+    const peak = Math.max(...heights);
+    const landedAt = heights.findIndex((h, i) => i > 3 && h === 0);
+    return { peak, landedSeconds: (landedAt + 2) / 30, final: heights[heights.length - 1] };
+  });
+  check(
+    jump.peak > 0.38 && jump.peak < 0.55,
+    `[${label}] jump height is human-scale (${jump.peak.toFixed(2)} m)`,
+  );
+  check(
+    jump.landedSeconds > 0.5 && jump.landedSeconds < 0.75 && jump.final === 0,
+    `[${label}] lands after ${jump.landedSeconds.toFixed(2)} s and stays on the ground (no mid-air double jump)`,
+  );
+  if (label === "desktop") {
+    // the real Space key, in the live game loop; holding it must not keep bouncing
+    const jumpsBefore = await page.evaluate(() => window.__GAME__.jumps());
+    await page.keyboard.down("Space");
+    await page.waitForTimeout(200);
+    const up = await page.evaluate(() => window.__GAME__.player().z);
+    await page.waitForTimeout(1800);
+    await page.keyboard.up("Space");
+    const jumpsHeld = (await page.evaluate(() => window.__GAME__.jumps())) - jumpsBefore;
+    check(up > 0.05, `[${label}] Space jumps (${up.toFixed(2)} m after 0.2 s)`);
+    check(jumpsHeld === 1, `[${label}] holding Space for 2 s gives exactly one jump (got ${jumpsHeld})`);
+  } else {
+    const box = (sel) =>
+      page.evaluate((s) => document.querySelector(s).getBoundingClientRect().toJSON(), sel);
+    const hit = (a, b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+    const jb = await box("#btnJump");
+    check(
+      (await page.isVisible("#btnJump")) &&
+        !hit(jb, await box("#joystick")) &&
+        !hit(jb, await box("#attrib")),
+      `[${label}] Jump button shown, clear of the joystick and credits`,
+    );
+    await page.tap("#btnJump");
+    await page.waitForTimeout(150);
+    check((await page.evaluate(() => window.__GAME__.player().z)) > 0.05, `[${label}] tapping Jump jumps`);
+    await page.waitForTimeout(900);
+  }
+
   // estimates toggle tints estimated roads and is reversible
   await page.click("#btnEstimates");
   check(

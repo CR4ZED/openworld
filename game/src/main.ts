@@ -9,6 +9,8 @@ import { buildWorld, makeRoadLocator, setEstimateTint } from "./world";
 const EYE_HEIGHT = 1.6;
 const WALK_SPEED = 1.4; // m/s, typical walking pace
 const RUN_SPEED = 4.0;
+const GRAVITY = 9.81; // m/s²
+const JUMP_SPEED = 3.0; // m/s upwards: about 0.46 m high, a normal standing jump
 // Start on the colony lane the owner surveyed (road-545446015), facing along it.
 const START_ROAD = "road-545446015";
 
@@ -42,7 +44,8 @@ async function main() {
 
   const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 1500);
   const look: Look = { yaw: 0, pitch: 0 };
-  const player = { x: 0, y: 0 };
+  const player = { x: 0, y: 0, z: 0, vz: 0 }; // z = height above ground, vz = vertical speed
+  let jumps = 0; // jumps started (for tests)
   const start = world.roads.find((r) => r.id === START_ROAD) ?? world.roads[0]!;
   placeOnRoad(start, player, look);
 
@@ -81,6 +84,17 @@ async function main() {
       dy /= m;
     }
     [player.x, player.y] = collider.move(player.x, player.y, dx * speed * dt, dy * speed * dt);
+    // jumping: only from the ground (no double jumps); gravity brings you back down
+    const grounded = player.z <= 0;
+    if (input.jump && grounded) {
+      player.vz = JUMP_SPEED;
+      jumps++;
+    }
+    if (!grounded || player.vz > 0) {
+      player.vz -= GRAVITY * dt;
+      player.z = Math.max(0, player.z + player.vz * dt);
+      if (player.z === 0) player.vz = 0;
+    }
   };
 
   let lastRoad: Road | null | undefined;
@@ -110,7 +124,7 @@ async function main() {
     const dt = Math.min(clock.getDelta(), 0.1);
     // phones held upright show "turn sideways": the world waits until it is landscape
     if (!document.body.classList.contains("portrait")) step(dt, controls.read());
-    camera.position.set(player.x, EYE_HEIGHT, -player.y);
+    camera.position.set(player.x, EYE_HEIGHT + player.z, -player.y);
     const dir = new THREE.Vector3(
       Math.sin(look.yaw) * Math.cos(look.pitch),
       Math.sin(look.pitch),
@@ -139,7 +153,8 @@ async function main() {
       fps,
       ...built.stats,
     }),
-    player: () => ({ x: player.x, y: player.y, yaw: look.yaw }),
+    player: () => ({ x: player.x, y: player.y, z: player.z, yaw: look.yaw }),
+    jumps: () => jumps,
     teleport: (x: number, y: number, yaw: number) => {
       player.x = x;
       player.y = y;
@@ -147,7 +162,9 @@ async function main() {
       look.pitch = 0;
     },
     step: (seconds: number, input: Input) => {
-      for (let t = 0; t < seconds; t += 1 / 30) step(1 / 30, input);
+      // a jump is one press: only the first sub-step sees it
+      for (let t = 0, first = true; t < seconds; t += 1 / 30, first = false)
+        step(1 / 30, { ...input, jump: first && !!input.jump });
     },
     blocked: (x: number, y: number) => collider.blocked(x, y),
     wallNear: (x: number, y: number, minLen: number, maxDist: number) =>

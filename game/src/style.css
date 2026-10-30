@@ -265,3 +265,28 @@ body.locked #scene {
 body.locked #crosshair {
   display: block;
 }
+
+/* jump button (phones) */
+#btnJump {
+  position: fixed;
+  z-index: 2;
+  right: calc(24px + env(safe-area-inset-right, 0px));
+  bottom: calc(40px + var(--safe-bottom));
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: none;
+  font: inherit;
+  font-weight: 700;
+  color: #1f2328;
+  background: rgba(255, 255, 255, 0.8);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  touch-action: none;
+}
+body.touch #btnJump {
+  display: block;
+}
+#btnJump:active {
+  background: #fff;
+}
