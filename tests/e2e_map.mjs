@@ -64,6 +64,19 @@ for (const [label, opts] of [
     geo.cl >= 0 && geo.cr <= geo.vw && geo.ct >= 40 && geo.cb <= geo.vh,
     `[${label}] whole circle visible, below the header`,
   );
+  const addBtn = await page.locator("#btnAddPlace").boundingBox();
+  check(
+    addBtn && addBtn.y > 60 && addBtn.y + addBtn.height <= geo.vh && addBtn.x + addBtn.width <= geo.vw,
+    `[${label}] + Place button is visible on screen`,
+  );
+  const overlaps = await page.evaluate(() => {
+    const a = document.getElementById("attrib").getBoundingClientRect();
+    const hit = (b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+    return [...document.querySelectorAll("#controls button")]
+      .filter((b) => hit(b.getBoundingClientRect()))
+      .map((b) => b.id);
+  });
+  check(overlaps.length === 0, `[${label}] attribution doesn't cover map buttons ${overlaps.join(",")}`);
   await page.screenshot({ path: path.join(outDir, `${label}_overview.png`) });
 
   // select an unnamed colony lane -> must say Unknown, never a guessed width
@@ -176,6 +189,63 @@ for (const [label, opts] of [
   await page.reload();
   await page.waitForFunction(() => window.__TEST__ && window.__TEST__.ready);
   check((await page.textContent("#btnSurvey")).includes("1"), `[${label}] survey kept after reload`);
+  // ---- pin a place ----
+  await page.click("#btnAddPlace");
+  check(await page.evaluate(() => window.__TEST__.pinMode()), `[${label}] + Place enters pin mode`);
+  await page.evaluate(() => window.__TEST__.dropPinAtWorld(1500, 0));
+  check(
+    (await page.textContent("#pinBanner")).includes("outside") &&
+      (await page.evaluate(() => window.__TEST__.pinMode())),
+    `[${label}] pin outside the map is refused`,
+  );
+  const restrictedPt = await page.evaluate(() => {
+    const w = JSON.parse(document.getElementById("world-data").textContent);
+    const zone = w.areas.find((a) => a.restricted).points;
+    const inPoly = (x, y) => {
+      let c = false;
+      for (let i = 0, j = zone.length - 1; i < zone.length; j = i++) {
+        const [xi, yi] = zone[i],
+          [xj, yj] = zone[j];
+        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+      }
+      return c;
+    };
+    for (let x = -950; x <= 950; x += 25)
+      for (let y = -950; y <= 950; y += 25) if (Math.hypot(x, y) < 950 && inPoly(x, y)) return [x, y];
+    return null;
+  });
+  check(restrictedPt !== null, `[${label}] found a point inside the restricted area to test with`);
+  await page.evaluate(([x, y]) => window.__TEST__.dropPinAtWorld(x, y), restrictedPt);
+  check(
+    (await page.textContent("#pinBanner")).includes("restricted"),
+    `[${label}] pin inside the ONGC restricted area is refused`,
+  );
+  await page.evaluate(() => window.__TEST__.dropPinAtWorld(40, 60));
+  check(!(await page.evaluate(() => window.__TEST__.pinMode())), `[${label}] valid pin opens the place form`);
+  await page.click("#pl-save");
+  check(
+    (await page.textContent('[data-err="type"]')).includes("choose") &&
+      (await page.evaluate(() => document.activeElement.id)) === "sv-type",
+    `[${label}] place needs a type before saving`,
+  );
+  await page.selectOption("#sv-type", "temple");
+  check(
+    (await page.textContent('[data-err="type"]')) === "" &&
+      !(await page.getAttribute("#sv-type", "class")).includes("invalid"),
+    `[${label}] error clears as soon as a type is chosen`,
+  );
+  await page.fill("#sv-name", "Sri Rama temple");
+  await page.fill("#sv-note", "Right side of the lane");
+  await page.screenshot({ path: path.join(outDir, `${label}_place_form.png`) });
+  await page.click("#pl-save");
+  check((await page.textContent("#sheet")).includes("Place saved"), `[${label}] place saved`);
+  check(
+    (await page.locator("[data-place-id]").count()) === 1 &&
+      (await page.textContent("[data-place-id]")).includes("Sri Rama temple"),
+    `[${label}] pinned place shown on the map with its name`,
+  );
+  await page.screenshot({ path: path.join(outDir, `${label}_place_pinned.png`) });
+
   // export panel
   await page.click("#btnSurvey");
   const exported = await page.inputValue("#sv-out");
@@ -183,6 +253,12 @@ for (const [label, opts] of [
   check(
     parsed.format === "openworld-street-survey/1" && parsed.streets[laneId].width_m === 4.5,
     `[${label}] exported survey has the street and its width`,
+  );
+  check(
+    parsed.places.length === 1 &&
+      parsed.places[0].type === "temple" &&
+      Math.abs(parsed.places[0].lat - 17.0143794 - 60 / 110574) < 1e-6,
+    `[${label}] exported survey has the pinned place at the right spot`,
   );
   check(
     !(await page.innerHTML("#sheet")).includes("<b>test</b>"),
@@ -220,13 +296,20 @@ for (const [label, opts] of [
       /Road width\s*4.5 m/.test(t2) && t2.includes("your survey"),
       "[round-trip] road shows surveyed width with survey as source",
     );
+    const poiId = `poi-survey-${parsed.places[0].id}`;
+    await p2.evaluate((i) => window.__TEST__.select(i), poiId);
+    const t3 = await p2.textContent("#sheet");
+    check(
+      t3.includes("Sri Rama temple") && t3.includes("your survey") && t3.includes("never used in crime"),
+      "[round-trip] pinned temple imported, attributed to survey, marked as place of worship",
+    );
     await p2.close();
   }
   // clear all needs two taps
   await page.click("#sv-clear");
   check(
-    (await page.evaluate(() => window.OpenworldSurvey.count())) === 1,
-    `[${label}] first tap does not delete`,
+    (await page.evaluate(() => window.OpenworldSurvey.count())) === 2,
+    `[${label}] first tap does not delete (street + place still saved)`,
   );
   await page.click("#sv-clear");
   check(

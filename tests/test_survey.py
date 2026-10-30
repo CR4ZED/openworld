@@ -2,6 +2,7 @@
 
 import copy
 import json
+import math
 import os
 import sys
 import tempfile
@@ -44,14 +45,31 @@ def tiny_world():
             },
         }
 
+    restricted = {
+        "id": "area-r",
+        "kind": "landuse:industrial",
+        "restricted": {"value": "test site", "source": "survey:owner-2026-10-30"},
+        "levels": {"value": None, "source": None},
+        "points": [(200, -100), (400, -100), (400, 100), (200, 100)],
+    }
     return {
-        "meta": {},
+        "meta": {"center": {"lat": 17.0, "lon": 82.0}, "radius_m": 1000},
         "gaps": {},
         "roads": [road("road-1"), road("road-2")],
-        "areas": [],
+        "areas": [restricted],
         "lines": [],
         "pois": [],
     }
+
+
+def latlon(x, y):
+    """Inverse of build_world.local_xy around the tiny world's centre (17.0, 82.0)."""
+    return 17.0 + y / 110574.0, 82.0 + x / (111320.0 * math.cos(math.radians(17.0)))
+
+
+def place(pid, x, y, **kw):
+    lat, lon = latlon(x, y)
+    return {"id": pid, "lat": lat, "lon": lon, "type": "temple", **kw}
 
 
 class ValidateTests(unittest.TestCase):
@@ -106,6 +124,66 @@ class ApplyTests(unittest.TestCase):
         self.assertIsNone(r2["width_m"]["value"])
         self.assertEqual(w["gaps"]["roads_surveyed"], 1)
         self.assertEqual(w["gaps"]["roads_without_width"], 1)
+
+
+class PlaceTests(unittest.TestCase):
+    def survey(self, places, streets=None):
+        return {
+            **{k: VALID[k] for k in ("format", "surveyor", "date")},
+            "streets": streets or {},
+            "places": places,
+        }
+
+    def check(self, places, needle):
+        with self.assertRaises(SurveyError) as cm:
+            validate_street_survey(self.survey(places), ROAD_IDS, world=tiny_world())
+        self.assertIn(needle, str(cm.exception))
+
+    def test_places_only_survey_is_valid(self):
+        validate_street_survey(
+            self.survey([place("p1", 10, 20, name="Sri Rama temple")]), ROAD_IDS, world=tiny_world()
+        )
+
+    def test_rejects_unknown_place_type(self):
+        self.check([place("p1", 10, 20, type="spaceport")], "type")
+
+    def test_rejects_place_outside_map(self):
+        self.check([place("p1", 1500, 0)], "outside the mapped area")
+
+    def test_rejects_place_inside_restricted_area(self):
+        self.check([place("p1", 300, 0)], "restricted")
+
+    def test_rejects_duplicate_ids_and_missing_type(self):
+        p = place("p1", 10, 20)
+        q = place("p1", 30, 20)
+        del q["type"]
+        with self.assertRaises(SurveyError) as cm:
+            validate_street_survey(self.survey([p, q]), ROAD_IDS, world=tiny_world())
+        self.assertIn("unique", str(cm.exception))
+        self.assertIn("type is required", str(cm.exception))
+
+    def test_rejects_empty_survey(self):
+        with self.assertRaises(SurveyError):
+            validate_street_survey(self.survey([]), ROAD_IDS, world=tiny_world())
+
+    def test_places_become_points_with_survey_source(self):
+        w = tiny_world()
+        sv = self.survey([place("p1", 10, 20, note="right side"), place("p2", -50, 5, type="restaurant")])
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(sv, f)
+        apply_street_survey(w, f.name)
+        os.unlink(f.name)
+        pois = {p["id"]: p for p in w["pois"]}
+        t = pois["poi-survey-p1"]
+        self.assertEqual(t["kind"], "survey:temple")
+        self.assertTrue(t["sacred"])
+        self.assertFalse(pois["poi-survey-p2"]["sacred"])
+        self.assertEqual(t["source"], "survey:owner-2026-10-31")
+        self.assertEqual(t["note"]["value"], "right side")
+        self.assertIsNone(t["name"]["value"])
+        self.assertAlmostEqual(t["point"][0], 10, delta=0.05)
+        self.assertAlmostEqual(t["point"][1], 20, delta=0.05)
+        self.assertEqual(w["gaps"]["places_surveyed"], 2)
 
 
 class SchemaTests(unittest.TestCase):

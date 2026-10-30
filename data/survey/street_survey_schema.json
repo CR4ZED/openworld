@@ -1,6 +1,6 @@
 {
   "format": "openworld-street-survey/1",
-  "about": "Fields of the street survey. Shared by the phone form (viewer/survey.js) and the importer (tools/build_world.py). Every field is optional: leave anything you are unsure about empty.",
+  "about": "Fields of the street and place survey. Shared by the phone form (viewer/survey.js) and the importer (tools/build_world.py). Every field is optional except a place's type: leave anything you are unsure about empty.",
   "fields": [
     {
       "key": "width_m",
@@ -16,20 +16,37 @@
       "key": "width_method",
       "label": "How was the width measured?",
       "type": "choice",
-      "options": ["tape", "pacing", "estimate"]
+      "options": [
+        "tape",
+        "pacing",
+        "estimate"
+      ]
     },
     {
       "key": "surface",
       "label": "Surface",
       "type": "choice",
-      "options": ["tar (asphalt)", "concrete", "paving blocks", "gravel", "mud", "mixed or broken"],
+      "options": [
+        "tar (asphalt)",
+        "concrete",
+        "paving blocks",
+        "gravel",
+        "mud",
+        "mixed or broken"
+      ],
       "road_attr": "surface"
     },
     {
       "key": "edges",
       "label": "Road edges",
       "type": "choice",
-      "options": ["compound walls", "mud shoulder", "kerb", "open land", "mixed"]
+      "options": [
+        "compound walls",
+        "mud shoulder",
+        "kerb",
+        "open land",
+        "mixed"
+      ]
     },
     {
       "key": "drain",
@@ -49,20 +66,32 @@
       "key": "footpath",
       "label": "Footpath",
       "type": "choice",
-      "options": ["none", "one side", "both sides"],
+      "options": [
+        "none",
+        "one side",
+        "both sides"
+      ],
       "road_attr": "footpath"
     },
     {
       "key": "street_lights",
       "label": "Street lights",
       "type": "choice",
-      "options": ["none", "few", "regular"]
+      "options": [
+        "none",
+        "few",
+        "regular"
+      ]
     },
     {
       "key": "electric_poles",
       "label": "Electric poles",
       "type": "choice",
-      "options": ["none", "one side", "both sides"]
+      "options": [
+        "none",
+        "one side",
+        "both sides"
+      ]
     },
     {
       "key": "speed_breakers",
@@ -75,19 +104,31 @@
       "key": "potholes",
       "label": "Potholes",
       "type": "choice",
-      "options": ["none", "some", "many"]
+      "options": [
+        "none",
+        "some",
+        "many"
+      ]
     },
     {
       "key": "water_logging",
       "label": "Water-logging in rain",
       "type": "choice",
-      "options": ["no", "sometimes", "often"]
+      "options": [
+        "no",
+        "sometimes",
+        "often"
+      ]
     },
     {
       "key": "trees",
       "label": "Trees along the road",
       "type": "choice",
-      "options": ["none", "few", "many"]
+      "options": [
+        "none",
+        "few",
+        "many"
+      ]
     },
     {
       "key": "notes",
@@ -100,6 +141,57 @@
       "key": "photos",
       "label": "Photo names",
       "help": "File names of the photos you will send (no faces or number plates).",
+      "type": "text",
+      "max_length": 500
+    }
+  ],
+  "place_types": [
+    "temple",
+    "mosque",
+    "church",
+    "restaurant",
+    "tea stall",
+    "tiffin centre",
+    "kirana / general store",
+    "shop",
+    "medical shop",
+    "clinic or hospital",
+    "school",
+    "college",
+    "bank or ATM",
+    "bus stop",
+    "auto stand",
+    "water tank",
+    "community hall",
+    "park or ground",
+    "market",
+    "petrol bunk",
+    "other"
+  ],
+  "sacred_place_types": [
+    "temple",
+    "mosque",
+    "church"
+  ],
+  "place_fields": [
+    {
+      "key": "type",
+      "label": "What is here?",
+      "type": "choice",
+      "options_from": "place_types",
+      "required": true
+    },
+    {
+      "key": "name",
+      "label": "Name (optional)",
+      "help": "Real name for our records. Businesses get a made-up name in the game.",
+      "type": "text",
+      "max_length": 120
+    },
+    {
+      "key": "note",
+      "label": "Note (optional)",
+      "help": "Which side of the road, how big, opening hours, crowd...",
       "type": "text",
       "max_length": 500
     }

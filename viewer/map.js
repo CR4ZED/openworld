@@ -326,6 +326,21 @@
   const toWorld = (sx, sy) => {
     const { w } = size();
     return [cam.x + (sx - w / 2) / cam.s, cam.y - (sy - midY()) / cam.s];
+  }; // local metres <-> lat/lon (same equirectangular projection as tools/build_world.py)
+  const C = W.meta.center,
+    KX = 111320 * Math.cos((C.lat * Math.PI) / 180),
+    KY = 110574;
+  const toLocal = (lat, lon) => [(lon - C.lon) * KX, (lat - C.lat) * KY];
+  const toLatLon = (x, y) => [C.lat + y / KY, C.lon + x / KX];
+  const restrictedZones = W.areas.filter((a) => a.restricted).map((a) => a.points);
+  const inPoly = (x, y, pts) => {
+    let c = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i],
+        [xj, yj] = pts[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+    }
+    return c;
   };
 
   function render() {
@@ -422,6 +437,40 @@
       );
       t.textContent = it.p.name.value || it.p.kind.split(":")[1].replace(/_/g, " ");
     }
+    // places pinned on this phone (green, tappable to edit)
+    const S = window.OpenworldSurvey;
+    if (S)
+      for (const p of S.places()) {
+        const [x, y] = toLocal(p.lat, p.lon);
+        const [sx, sy] = toScreen(x, y);
+        const g2 = el("g", { "data-place-id": p.id }, gLabels);
+        g2.style.cursor = "pointer";
+        el(
+          "path",
+          {
+            d: `M${sx} ${sy}c-5 -7 -8 -10 -8 -15a8 8 0 0 1 16 0c0 5 -3 8 -8 15z`,
+            fill: "#15803d",
+            stroke: "#fff",
+            "stroke-width": 2,
+          },
+          g2,
+        );
+        const t = el(
+          "text",
+          {
+            x: sx + 11,
+            y: sy - 10,
+            "font-size": 12,
+            "font-weight": 600,
+            fill: "#14532d",
+            stroke: "#f7f4ec",
+            "stroke-width": 3,
+            "paint-order": "stroke",
+          },
+          g2,
+        );
+        t.textContent = p.name || p.type;
+      }
     // centre pin
     const [cx, cy] = toScreen(0, 0);
     const pin = el("g", { "pointer-events": "none" }, gLabels);
@@ -490,7 +539,7 @@
   svg.addEventListener("pointerup", (e) => {
     const wasTap = moved < 6 && pointers.size === 1;
     end(e);
-    if (wasTap) pick(e);
+    if (wasTap) pinMode ? dropPin(e.clientX, e.clientY) : pick(e);
   });
   svg.addEventListener("pointercancel", end);
   svg.addEventListener(
@@ -546,6 +595,8 @@
       : `<span class="known">${fmt ? fmt(a.value) : a.value}</span><div class="src">from ${osmLink(a.source)}</div>`;
   function pick(e) {
     const t = document.elementFromPoint(e.clientX, e.clientY);
+    const mine = t && t.closest("[data-place-id]");
+    if (mine) return openPlace({ id: mine.getAttribute("data-place-id") });
     const host = t && t.closest("[data-id]");
     if (!host) return;
     select(host.getAttribute("data-id"));
@@ -622,7 +673,8 @@
   ${f.confidence ? '<div class="note">Outline detected from satellite imagery by Google. Floors, height, walls and look come from your survey and photos.</div>' : ""}`;
     } else if (item.type === "poi") {
       html = `<h2>${(f.alias && f.alias.value) || f.name.value || f.kind.split(":")[1].replace(/_/g, " ")}</h2><div class="sub">${f.kind.replace(":", " &middot; ")}</div>
-  <table><tr><td>Map source</td><td>${osmLink(f.source)}</td></tr></table>`;
+  <table>${f.note && f.note.value ? `<tr><td>Note</td><td>${val(f.note)}</td></tr>` : ""}<tr><td>Map source</td><td>${osmLink(f.source)}</td></tr></table>
+  ${f.sacred ? '<div class="note">Place of worship: shown respectfully and never used in crime or violent scenes.</div>' : ""}`;
     }
     body.innerHTML = html;
     sheet.classList.add("open");
@@ -646,9 +698,55 @@
   }
   function openSurveyPanel() {
     layerSel.textContent = "";
-    window.OpenworldSurvey.openPanel(body, (rid) => openSurvey(rid));
+    window.OpenworldSurvey.openPanel(
+      body,
+      (rid) => openSurvey(rid),
+      (pid) => openPlace({ id: pid }),
+    );
     sheet.classList.add("open");
   }
+  // ---- pin a place: "+ Place" then tap the map ----
+  let pinMode = false;
+  const banner = document.getElementById("pinBanner");
+  function setPinMode(on, msg) {
+    pinMode = on;
+    banner.classList.toggle("open", on);
+    banner.querySelector("span").textContent = msg || "Tap the map where the place is";
+    document.getElementById("btnAddPlace").classList.toggle("active", on);
+  }
+  document.getElementById("btnAddPlace").onclick = () => {
+    sheet.classList.remove("open");
+    layerSel.textContent = "";
+    setPinMode(!pinMode);
+  };
+  document.getElementById("pinCancel").onclick = () => setPinMode(false);
+  /** Drop a pin at screen point; refuses spots outside the map or inside restricted areas. */
+  function dropPin(sx, sy) {
+    const [x, y] = toWorld(sx, sy);
+    if (Math.hypot(x, y) > R)
+      return setPinMode(true, "That's outside the mapped area. Tap inside the circle.");
+    if (restrictedZones.some((z) => inPoly(x, y, z)))
+      return setPinMode(true, "That's a restricted area: places there are never mapped. Tap elsewhere.");
+    setPinMode(false);
+    const [lat, lon] = toLatLon(x, y);
+    openPlace({ lat, lon });
+  }
+  function openPlace(place) {
+    const S = window.OpenworldSurvey;
+    const known = place.id ? S.places().find((p) => p.id === place.id) : null;
+    const target = known ? { id: known.id, lat: known.lat, lon: known.lon } : place;
+    layerSel.textContent = "";
+    S.openPlaceForm(body, target, (result) => {
+      render();
+      if (result === "saved") {
+        body.innerHTML =
+          '<h2>Place saved</h2><div class="sv-msg ok">Saved on this phone.</div><div class="note">Tap + Place to pin another, or Survey to send everything to Claude.</div>';
+      } else sheet.classList.remove("open");
+    });
+    sheet.classList.add("open");
+    sheet.scrollTop = 0;
+  }
+  document.addEventListener("survey-changed", render);
   document.getElementById("btnSurvey").onclick = openSurveyPanel;
   const g = W.gaps;
   document.getElementById("btnGaps").onclick = () => {
@@ -684,6 +782,8 @@
 <div class="legend-row"><svg width="34" height="14"><rect x="6" y="1" width="22" height="12" fill="#e3d8cb" stroke="#9c8670" stroke-dasharray="2 2"/></svg>Building, lower confidence: please check</div>
 <div class="legend-row"><svg width="34" height="14"><circle cx="17" cy="7" r="5" fill="#1d6fd8" stroke="#fff" stroke-width="2"/></svg>Place (hospital, theatre...)</div>
 <div class="legend-row">${sw("#1d6fd8", 2, "1 5")}Road you described (owner note)</div>
+<div class="legend-row">${sw("#15803d", 4)}Street you surveyed (not sent yet)</div>
+<div class="legend-row"><svg width="34" height="16"><path d="M17 15c-5 -7 -8 -10 -8 -14a8 8 0 0 1 16 0c0 4 -3 7 -8 14z" transform="translate(0 -1)" fill="#15803d" stroke="#fff" stroke-width="1.5"/></svg>Place you pinned (not sent yet)</div>
 <div class="legend-row"><svg width="34" height="14"><rect x="6" y="1" width="22" height="12" fill="#efe3e3" stroke="#b45454"/><line x1="8" y1="13" x2="20" y2="1" stroke="#c98b8b" stroke-width="3"/></svg>Restricted area (never modelled)</div>
 <div class="legend-row"><svg width="34" height="14"><circle cx="17" cy="7" r="6" fill="none" stroke="#8b8577" stroke-dasharray="4 3"/></svg>1 km radius around the pin</div>
 <div class="note">Line thickness shows road type, not real width. Widths, drains and footpaths are drawn only once surveyed.</div>`;
@@ -704,6 +804,11 @@
     select,
     openSurvey,
     openSurveyPanel,
+    dropPinAtWorld: (x, y) => {
+      const [sx, sy] = toScreen(x, y);
+      dropPin(sx, sy);
+    },
+    pinMode: () => pinMode,
     camera: () => ({ ...cam }),
     gaps: g,
   };

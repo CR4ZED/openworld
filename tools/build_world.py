@@ -398,11 +398,30 @@ class SurveyError(ValueError):
     pass
 
 
-def validate_street_survey(survey, road_ids, schema_path=SURVEY_SCHEMA):
-    """Check a street survey against the shared schema. Raises SurveyError listing every problem."""
+def _check_value(fd, value, where, problems, options=None):
+    """Append a problem if value doesn't fit field definition fd."""
+    if fd["type"] in ("number", "integer"):
+        kinds = (int,) if fd["type"] == "integer" else (int, float)
+        ok = not isinstance(value, bool) and isinstance(value, kinds)
+        if not ok or not fd["min"] <= value <= fd["max"]:
+            what = "whole number" if fd["type"] == "integer" else "number"
+            problems.append(f"{where}: {value!r} is not a {what} from {fd['min']} to {fd['max']}")
+    elif fd["type"] == "choice":
+        opts = options if options is not None else fd["options"]
+        if value not in opts:
+            problems.append(f"{where}: {value!r} is not one of {opts}")
+    elif fd["type"] == "text":
+        if not isinstance(value, str) or len(value) > fd["max_length"]:
+            problems.append(f"{where}: text too long or not text")
+
+
+def validate_street_survey(survey, road_ids, schema_path=SURVEY_SCHEMA, world=None):
+    """Check a street/place survey against the shared schema. Raises SurveyError listing every problem.
+    With `world`, places are also checked to lie inside the map and outside restricted areas."""
     with open(schema_path) as f:
         schema = json.load(f)
     fields = {fd["key"]: fd for fd in schema["fields"]}
+    place_fields = {fd["key"]: fd for fd in schema["place_fields"]}
     problems = []
     if survey.get("format") != schema["format"]:
         problems.append(f"format must be {schema['format']!r}, got {survey.get('format')!r}")
@@ -410,10 +429,16 @@ def validate_street_survey(survey, road_ids, schema_path=SURVEY_SCHEMA):
         problems.append("date must be YYYY-MM-DD")
     if not re.fullmatch(r"[a-z0-9-]{1,40}", str(survey.get("surveyor", ""))):
         problems.append("surveyor must be a short lowercase id, e.g. 'owner'")
-    streets = survey.get("streets")
-    if not isinstance(streets, dict) or not streets:
-        problems.append("streets must be a non-empty object")
+    streets = survey.get("streets", {})
+    places = survey.get("places", [])
+    if not isinstance(streets, dict):
+        problems.append("streets must be an object")
         streets = {}
+    if not isinstance(places, list):
+        problems.append("places must be a list")
+        places = []
+    if not streets and not places:
+        problems.append("survey has no streets and no places")
     for rid, entry in streets.items():
         if rid not in road_ids:
             problems.append(f"{rid}: no such road in this map")
@@ -422,35 +447,56 @@ def validate_street_survey(survey, road_ids, schema_path=SURVEY_SCHEMA):
             problems.append(f"{rid}: empty entry")
             continue
         for key, value in entry.items():
-            fd = fields.get(key)
-            if fd is None:
+            if key not in fields:
                 problems.append(f"{rid}.{key}: unknown field")
-            elif fd["type"] in ("number", "integer"):
-                kinds = (int,) if fd["type"] == "integer" else (int, float)
-                ok = not isinstance(value, bool) and isinstance(value, kinds)
-                if not ok or not fd["min"] <= value <= fd["max"]:
-                    what = "whole number" if fd["type"] == "integer" else "number"
-                    problems.append(f"{rid}.{key}: {value!r} is not a {what} from {fd['min']} to {fd['max']}")
-            elif fd["type"] == "choice":
-                if value not in fd["options"]:
-                    problems.append(f"{rid}.{key}: {value!r} is not one of {fd['options']}")
-            elif fd["type"] == "text":
-                if not isinstance(value, str) or len(value) > fd["max_length"]:
-                    problems.append(f"{rid}.{key}: text too long or not text")
+            else:
+                _check_value(fields[key], value, f"{rid}.{key}", problems)
+    seen = set()
+    for i, pl in enumerate(places):
+        where = f"place {i + 1}"
+        if not isinstance(pl, dict):
+            problems.append(f"{where}: not an object")
+            continue
+        pid = pl.get("id")
+        if not re.fullmatch(r"[a-z0-9-]{1,40}", str(pid)) or pid in seen:
+            problems.append(f"{where}: id must be a unique short lowercase id")
+        seen.add(pid)
+        for key in pl:
+            if key not in place_fields and key not in ("id", "lat", "lon"):
+                problems.append(f"{where}.{key}: unknown field")
+        if "type" not in pl:
+            problems.append(f"{where}: type is required")
+        for key, fd in place_fields.items():
+            if key in pl:
+                opts = schema[fd["options_from"]] if "options_from" in fd else None
+                _check_value(fd, pl[key], f"{where}.{key}", problems, opts)
+        lat, lon = pl.get("lat"), pl.get("lon")
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (lat, lon)):
+            problems.append(f"{where}: lat and lon must be numbers")
+        elif world is not None:
+            c = world["meta"]["center"]
+            x, y = local_xy(lat, lon, c["lat"], c["lon"])
+            if math.hypot(x, y) > world["meta"]["radius_m"]:
+                problems.append(f"{where}: outside the mapped area")
+            for a in world["areas"]:
+                if "restricted" in a and point_in_poly(x, y, a["points"]):
+                    problems.append(f"{where}: inside a restricted area; restricted sites are never mapped")
     if problems:
-        raise SurveyError("street survey rejected:\n  " + "\n  ".join(problems))
+        raise SurveyError("survey rejected:\n  " + "\n  ".join(problems))
     return fields
 
 
 def apply_street_survey(world, survey_path):
-    """Merge a validated street survey. Core attributes (width, surface, drain, footpath) get the
-    survey as their source; every other field is kept under road['survey'] with the same source."""
+    """Merge a validated survey. Core road attributes (width, surface, drain, footpath) get the survey as
+    their source; other street fields go under road['survey']; places become points of interest."""
     with open(survey_path) as f:
         survey = json.load(f)
     roads = {r["id"]: r for r in world["roads"]}
-    fields = validate_street_survey(survey, set(roads))
+    fields = validate_street_survey(survey, set(roads), world=world)
+    with open(SURVEY_SCHEMA) as f:
+        sacred = set(json.load(f)["sacred_place_types"])
     src = f"survey:{survey['surveyor']}-{survey['date']}"
-    for rid, entry in survey["streets"].items():
+    for rid, entry in survey.get("streets", {}).items():
         road = roads[rid]
         for key, value in entry.items():
             attr_name = fields[key].get("road_attr")
@@ -458,7 +504,21 @@ def apply_street_survey(world, survey_path):
                 road[attr_name] = {"value": value, "source": src}
             else:
                 road.setdefault("survey", {})[key] = {"value": value, "source": src}
-    note = f"street survey, {len(survey['streets'])} roads"
+    c = world["meta"]["center"]
+    pois = {p["id"]: p for p in world["pois"]}
+    for pl in survey.get("places", []):
+        poi = {
+            "id": f"poi-survey-{pl['id']}",
+            "source": src,
+            "kind": f"survey:{pl['type']}",
+            "name": attr(pl.get("name") or None, src if pl.get("name") else None),
+            "note": attr(pl.get("note") or None, src if pl.get("note") else None),
+            "sacred": pl["type"] in sacred,
+            "point": list(local_xy(pl["lat"], pl["lon"], c["lat"], c["lon"])),
+        }
+        pois[poi["id"]] = poi  # a later survey of the same place replaces it
+    world["pois"] = list(pois.values())
+    note = f"survey: {len(survey.get('streets', {}))} streets, {len(survey.get('places', []))} places"
     world["meta"].setdefault("surveys", []).append({"source": src, "note": note})
     g = world["gaps"]
     for a in ROAD_SURVEY_ATTRS:
@@ -472,6 +532,7 @@ def apply_street_survey(world, survey_path):
         )
         or "survey" in r
     )
+    g["places_surveyed"] = sum(1 for p in world["pois"] if p["source"].startswith("survey:"))
 
 
 def main():

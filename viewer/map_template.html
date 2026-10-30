@@ -91,6 +91,7 @@
         display: flex;
         flex-direction: column;
         gap: 6px;
+        align-items: flex-end;
       }
       #controls button {
         width: 42px;
@@ -300,6 +301,43 @@
         color: var(--ok);
         font-weight: 600;
       }
+      #pinBanner {
+        position: absolute;
+        z-index: 5;
+        left: 12px;
+        right: 12px;
+        top: calc(66px + var(--safe-top));
+        display: none;
+        align-items: center;
+        gap: 10px;
+        justify-content: space-between;
+        padding: 10px 12px;
+        background: #14532d;
+        color: #fff;
+        border-radius: 10px;
+        font-weight: 600;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+      }
+      #pinBanner.open {
+        display: flex;
+      }
+      #pinBanner button {
+        background: transparent;
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.6);
+      }
+      #controls button.addplace {
+        width: auto;
+        padding: 0 12px;
+        font-size: 14px;
+        font-weight: 600;
+        color: #15803d;
+      }
+      #controls button.addplace.active {
+        background: #15803d;
+        color: #fff;
+        border-color: #15803d;
+      }
     </style>
   </head>
   <body>
@@ -325,7 +363,11 @@
       <g id="world"></g>
       <g id="labels"></g>
     </svg>
+    <div id="pinBanner">
+      <span>Tap the map where the place is</span><button id="pinCancel">Cancel</button>
+    </div>
     <div id="controls">
+      <button id="btnAddPlace" aria-label="Pin a place" class="addplace">+ Place</button>
       <button id="zin" aria-label="Zoom in">+</button>
       <button id="zout" aria-label="Zoom out">&minus;</button>
       <button id="home" aria-label="Reset view" style="font-size: 15px">&#8982;</button>

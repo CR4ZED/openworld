@@ -21,10 +21,11 @@
   };
 
   // In-memory copy is the source of truth for this page; storage is a best-effort mirror.
-  let state = { streets: {} };
+  let state = { streets: {}, places: {} };
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || "null");
     if (saved && saved.streets && typeof saved.streets === "object") state = saved;
+    if (!state.places || typeof state.places !== "object") state.places = {};
   } catch {
     /* storage unavailable: keep working in memory */
   }
@@ -60,13 +61,16 @@
     return `<label class="sv-field" for="${id}"><span>${esc(fd.label)}</span>${help}${input}<div class="sv-err" data-err="${fd.key}"></div></label>`;
   }
 
-  function readForm(root) {
+  function readForm(root, fields = FIELDS) {
     const entry = {};
     const errors = {};
-    for (const fd of FIELDS) {
+    for (const fd of fields) {
       const elx = root.querySelector(`[data-key="${fd.key}"]`);
       const raw = elx.value.trim();
-      if (raw === "") continue;
+      if (raw === "") {
+        if (fd.required) errors[fd.key] = "Please choose one";
+        continue;
+      }
       if (fd.type === "number" || fd.type === "integer") {
         const n = Number(raw);
         const okType = fd.type === "integer" ? Number.isInteger(n) : Number.isFinite(n);
@@ -83,8 +87,28 @@
     return { entry, errors };
   }
 
+  const PLACE_FIELDS = SCHEMA.place_fields.map((fd) =>
+    fd.options_from ? { ...fd, options: SCHEMA[fd.options_from] } : fd,
+  );
+  const newPlaceId = () => `p-${Date.now().toString(36)}-${Math.floor(Math.random() * 1296).toString(36)}`;
+
+  /** Clear a field's error as soon as the person changes it. */
+  function clearErrorsOnInput(form) {
+    form.addEventListener("input", (e) => {
+      const key = e.target.dataset && e.target.dataset.key;
+      if (!key) return;
+      e.target.classList.remove("invalid");
+      const err = form.querySelector(`[data-err="${key}"]`);
+      if (err) err.textContent = "";
+      if (!form.querySelector(".invalid")) form.querySelector(".sv-msg").textContent = "";
+    });
+  }
+
   const Survey = {
-    count: () => Object.keys(state.streets).length,
+    count: () => Object.keys(state.streets).length + Object.keys(state.places).length,
+    streetCount: () => Object.keys(state.streets).length,
+    places: () => Object.entries(state.places).map(([id, p]) => ({ id, ...p })),
+    isSacred: (type) => SCHEMA.sacred_place_types.includes(type),
     has: (roadId) => Boolean(state.streets[roadId]),
     ids: () => Object.keys(state.streets),
 
@@ -100,6 +124,7 @@
           <div class="sv-msg" id="sv-msg"></div>
         </form>`;
       const form = container.querySelector("#sv-form");
+      clearErrorsOnInput(form);
       form.addEventListener("submit", (e) => {
         e.preventDefault();
         const { entry, errors } = readForm(form);
@@ -133,25 +158,88 @@
         };
     },
 
+    /** Form for a place pinned on the map. `place` = {id?, lat, lon}. */
+    openPlaceForm(container, place, onDone) {
+      const id = place.id || newPlaceId();
+      const cur = state.places[id] || {};
+      container.innerHTML = `<h2>${cur.type ? "Edit place" : "New place"}</h2>
+        <div class="sub">Pinned at ${place.lat.toFixed(6)}, ${place.lon.toFixed(6)}</div>
+        <form id="pl-form" novalidate>${PLACE_FIELDS.map((fd) => fieldHtml(fd, cur[fd.key])).join("")}
+          <div class="sv-actions"><button type="submit" class="primary" id="pl-save">Save place</button>
+          <button type="button" id="pl-cancel">Cancel</button>
+          ${state.places[id] ? '<button type="button" id="pl-delete" class="danger">Delete</button>' : ""}</div>
+          <div class="sv-msg" id="pl-msg"></div>
+        </form>`;
+      const form = container.querySelector("#pl-form");
+      clearErrorsOnInput(form);
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const { entry, errors } = readForm(form, PLACE_FIELDS);
+        form.querySelectorAll("[data-err]").forEach((d) => (d.textContent = errors[d.dataset.err] || ""));
+        form
+          .querySelectorAll("[data-key]")
+          .forEach((i) => i.classList.toggle("invalid", i.dataset.key in errors));
+        if (Object.keys(errors).length) {
+          form.querySelector("#pl-msg").textContent = "Please choose what is here.";
+          form.querySelector(".invalid").focus();
+          return;
+        }
+        state.places[id] = {
+          ...entry,
+          lat: Math.round(place.lat * 1e7) / 1e7,
+          lon: Math.round(place.lon * 1e7) / 1e7,
+          saved: today(),
+        };
+        persist();
+        onDone && onDone("saved", id);
+      });
+      container.querySelector("#pl-cancel").onclick = () => onDone && onDone("cancel", id);
+      const del = container.querySelector("#pl-delete");
+      if (del)
+        del.onclick = () => {
+          delete state.places[id];
+          persist();
+          onDone && onDone("deleted", id);
+        };
+    },
+
     /** The JSON the importer accepts (tools/build_world.py --street-survey). */
     exportJson(surveyor = "owner") {
       const streets = {};
       for (const [rid, s] of Object.entries(state.streets)) streets[rid] = s.entry;
-      return JSON.stringify({ format: SCHEMA.format, surveyor, date: today(), streets }, null, 2);
+      const places = Object.entries(state.places).map(([id, p]) => {
+        const out = { id, lat: p.lat, lon: p.lon };
+        for (const fd of PLACE_FIELDS) if (p[fd.key] !== undefined) out[fd.key] = p[fd.key];
+        return out;
+      });
+      const doc = { format: SCHEMA.format, surveyor, date: today(), streets };
+      if (places.length) doc.places = places;
+      return JSON.stringify(doc, null, 2);
     },
 
     /** Panel listing saved streets with a Copy button. `onEdit(roadId)` opens a street. */
-    openPanel(container, onEdit) {
+    openPanel(container, onEdit, onEditPlace) {
       const n = Survey.count();
+      const ns = Survey.streetCount(),
+        np = n - ns;
       const rows = Object.entries(state.streets)
         .map(
           ([rid, s]) =>
             `<div class="stat"><button type="button" class="link" data-edit="${esc(rid)}">${esc(s.label)}</button><span>${Object.keys(s.entry).length} fields</span></div>`,
         )
         .join("");
-      container.innerHTML = `<h2>My street survey</h2>
-        <div class="sub">${n ? `${n} street${n > 1 ? "s" : ""} saved on this phone` : "No streets yet. Tap a road on the map, then Survey this street."}</div>
-        ${rows}
+      const placeRows = Object.entries(state.places)
+        .map(
+          ([pid, p]) =>
+            `<div class="stat"><button type="button" class="link" data-edit-place="${esc(pid)}">${esc(p.name || p.type)}</button><span>${esc(p.type)}</span></div>`,
+        )
+        .join("");
+      const parts = [];
+      if (ns) parts.push(`${ns} street${ns > 1 ? "s" : ""}`);
+      if (np) parts.push(`${np} place${np > 1 ? "s" : ""}`);
+      container.innerHTML = `<h2>My survey</h2>
+        <div class="sub">${n ? `${parts.join(" and ")} saved on this phone` : "Nothing yet. Tap a road and choose Survey this street, or tap + Place to pin a temple, shop or other place."}</div>
+        ${rows}${placeRows}
         ${
           n
             ? `<div class="sv-actions"><button type="button" class="primary" id="sv-copy">Copy for Claude</button>
@@ -162,6 +250,9 @@
             : ""
         }`;
       container.querySelectorAll("[data-edit]").forEach((b) => (b.onclick = () => onEdit(b.dataset.edit)));
+      container
+        .querySelectorAll("[data-edit-place]")
+        .forEach((b) => (b.onclick = () => onEditPlace && onEditPlace(b.dataset.editPlace)));
       const copy = container.querySelector("#sv-copy");
       if (copy)
         copy.onclick = async () => {
@@ -180,9 +271,9 @@
       if (clear)
         clear.onclick = () => {
           if (clear.dataset.armed) {
-            state = { streets: {} };
+            state = { streets: {}, places: {} };
             persist();
-            Survey.openPanel(container, onEdit);
+            Survey.openPanel(container, onEdit, onEditPlace);
           } else {
             clear.dataset.armed = "1";
             clear.textContent = "Tap again to delete all";
