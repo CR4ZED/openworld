@@ -21,6 +21,8 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from itertools import pairwise
 
+from estimates import estimate_roads, measure_surroundings  # same folder as this script
+
 ROAD_CLASSES = {
     "motorway": "Highway",
     "trunk": "Highway",
@@ -562,77 +564,33 @@ def apply_street_survey(world, survey_path):
     g["places_surveyed"] = sum(1 for p in world["pois"] if p["source"].startswith("survey:"))
 
 
-def check_widths_against_buildings(world, max_side_m=40.0, step_m=5.0, cell=20.0):
+def check_widths_against_buildings(world):
     """Cross-check surveyed widths with building outlines (an independent source).
 
-    Along each road with a known width, measure the distance to the nearest building on each side and
-    add them: that gap is an upper bound for the road width where buildings stand on both sides.
-    Adds road['width_check'] = {gap_median_m, gap_p10_m, samples, ok}. ok is False when the width is
-    wider than the median gap, which means the width or the map needs re-checking. Never changes widths.
+    Uses road['surroundings'] (see estimates.measure_surroundings): where buildings stand on both sides,
+    the gap between them is an upper bound for the road width. Adds road['width_check'] =
+    {gap_median_m, gap_p10_m, samples, ok}; ok is False when the width is wider than the median gap.
+    Never changes widths.
     """
-    grid = {}
-    for a in world["areas"]:
-        if a["kind"] != "building":
-            continue
-        pts = a["points"]
-        for i in range(len(pts)):
-            e = (pts[i - 1], pts[i])
-            for gx in range(int(min(e[0][0], e[1][0]) // cell), int(max(e[0][0], e[1][0]) // cell) + 1):
-                for gy in range(int(min(e[0][1], e[1][1]) // cell), int(max(e[0][1], e[1][1]) // cell) + 1):
-                    grid.setdefault((gx, gy), []).append(e)
-    reach = int(max_side_m // cell) + 1
-
-    def nearest(p, ux, uy):
-        left = right = None
-        gx, gy = int(p[0] // cell), int(p[1] // cell)
-        for i in range(gx - reach, gx + reach + 1):
-            for j in range(gy - reach, gy + reach + 1):
-                for a, b in grid.get((i, j), ()):
-                    dx, dy = b[0] - a[0], b[1] - a[1]
-                    t = max(
-                        0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / ((dx * dx + dy * dy) or 1))
-                    )
-                    q = (a[0] + t * dx, a[1] + t * dy)
-                    d = math.dist(p, q)
-                    if d > max_side_m:
-                        continue
-                    if ux * (q[1] - p[1]) - uy * (q[0] - p[0]) > 0:
-                        left = d if left is None else min(left, d)
-                    else:
-                        right = d if right is None else min(right, d)
-        return left, right
-
+    if any("surroundings" not in r for r in world["roads"]):
+        measure_surroundings(world)
     flagged = 0
     for r in world["roads"]:
         width = r["width_m"]["value"]
         if width is None:
             continue
-        gaps = []
-        for part in r["parts"]:
-            for a, b in pairwise(part):
-                length = math.dist(a, b)
-                if length == 0:
-                    continue
-                ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
-                n = max(1, int(length // step_m))
-                for k in range(n):
-                    p = (a[0] + ux * length * k / n, a[1] + uy * length * k / n)
-                    left, right = nearest(p, ux, uy)
-                    if left is not None and right is not None:
-                        gaps.append(left + right)
-        if not gaps:
+        s = r["surroundings"]
+        if not s["gap_samples"]:
             r["width_check"] = {"samples": 0, "ok": None}
             continue
-        gaps.sort()
-        median, p10 = gaps[len(gaps) // 2], gaps[len(gaps) // 10]
-        ok = width <= median
+        ok = width <= s["gap_median_m"]
         flagged += not ok
         r["width_check"] = {
-            "gap_median_m": round(median, 1),
-            "gap_p10_m": round(p10, 1),
-            "samples": len(gaps),
+            "gap_median_m": s["gap_median_m"],
+            "gap_p10_m": s["gap_p10_m"],
+            "samples": s["gap_samples"],
             "ok": ok,
-            "source": "open-buildings:google-v3",
+            "source": s["source"],
         }
     world["gaps"]["roads_width_to_recheck"] = flagged
 
@@ -661,7 +619,12 @@ def main():
     for sv in surveys:  # later surveys override earlier ones for the same field
         apply_street_survey(world, sv)
         print(f"applied street survey {sv}")
+    measure_surroundings(world)
     check_widths_against_buildings(world)
+    with open(SURVEY_SCHEMA) as f:
+        n_est = estimate_roads(world, json.load(f))
+    world["gaps"]["roads_with_estimates"] = n_est
+    print(f"estimates made for {n_est} roads (marked estimate:v1, never replacing survey values)")
     for r in world["roads"]:
         c = r.get("width_check")
         if c and c["ok"] is False:

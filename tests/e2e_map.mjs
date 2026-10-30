@@ -98,6 +98,15 @@ for (const [label, opts] of [
   }
   check(/Road width\s*Unknown/.test(sheetText), `[${label}] lane with no data shows width as Unknown`);
   check(/Drain\s*Unknown/.test(sheetText), `[${label}] drain shows Unknown (not invented)`);
+  check(
+    /Road width\s*Unknown · needs survey\s*≈ [\d.]+ m estimate · (low|medium) confidence/.test(sheetText),
+    `[${label}] unsurveyed lane shows its width estimate, labelled, under "Unknown"`,
+  );
+  check(
+    (await page.locator("[data-est-width-m]").count()) > 100 &&
+      (await page.locator("[data-width-m]").count()) >= 6,
+    `[${label}] estimated and surveyed widths are drawn as separate layers`,
+  );
   await page.screenshot({ path: path.join(outDir, `${label}_selected.png`) });
 
   // owner notes and restricted areas are shown
