@@ -43,6 +43,10 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Performance budget: at most 40 draw calls (geometry merged per material). `tests/e2e_game.mjs` checks the
   picture really renders (not blank; sky above, ground below), walking speed, wall collision, budgets.
 - Building floors are estimates (estimate:v1) by footprint until the owner surveys them.
+- Visuals (2026-10-31): surface textures are drawn in code (`game/src/textures.ts`, fixed seeds), laid along each road
+  (u = metres along, v = across). Never paint distinct features (patches, potholes, signs) into a repeating texture:
+  they show up as an obvious row; place them individually instead. Quality High = sun shadows following the player;
+  Low = no shadows, pixel ratio 1; budget phones (<= 4 cores or <= 4 GB) start on Low.
 - Desktop look = mouse movement (owner, 2026-10-31): click the view to capture the mouse (pointer lock), Esc frees
   it; drag is only a fallback. Overlays on the view (crosshair) must have pointer-events: none.
 - Jump (owner, 2026-10-31): Space on desktop, Jump button on phones. Human-scale: 3.0 m/s take-off, g = 9.81
@@ -75,6 +79,9 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Survey fields are defined once in `data/survey/street_survey_schema.json`, shared by the form and the importer.
 
 ## Lessons learned
+
+- 2026-10-31: repair patches painted into the 6 m tar texture repeated like a ladder down the ADB Road. Caught by
+  looking at the render; textures now hold only uniform detail.
 
 - 2026-10-31: the test browser renders slowly, so the live game runs in slow motion there; a timing-based check
   ("landed after 1.5 s") failed while the game was right. Test real-time behaviour by counting events (jumps

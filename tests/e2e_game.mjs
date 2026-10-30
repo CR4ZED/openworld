@@ -118,6 +118,40 @@ for (const [label, opts] of [
   );
   check(shot.length > 20000, `[${label}] screenshot is not trivially empty (${shot.length} bytes)`);
 
+  // surfaces are textured (drawn in code), and the sky is bluer overhead than at the horizon
+  const textured = await page.evaluate(() => window.__GAME__.texturedSurfaces());
+  const has = (k) => textured.some((n) => n.includes(k));
+  check(
+    has("ground") && has("roads:concrete") && has("roads:tar") && has("roads:redmud"),
+    `[${label}] ground, concrete, tar and red mud surfaces are textured`,
+  );
+  const skyCheck = await page.evaluate(() => {
+    // rendered: scan across the upper view for open sky (houses may cover parts of it)
+    const c = document.getElementById("scene");
+    const gl = c.getContext("webgl2") || c.getContext("webgl");
+    const px = new Uint8Array(4);
+    let bluest = -255;
+    for (let i = 0; i < 40; i++) {
+      gl.readPixels(
+        Math.floor(gl.drawingBufferWidth * ((i + 0.5) / 40)),
+        Math.floor(gl.drawingBufferHeight * 0.85),
+        1,
+        1,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        px,
+      );
+      bluest = Math.max(bluest, px[2] - px[0]);
+    }
+    return { bluest, gradient: window.__GAME__.skyGradient() };
+  });
+  check(skyCheck.bluest > 15, `[${label}] blue sky visible overhead (blue - red = ${skyCheck.bluest})`);
+  check(
+    skyCheck.gradient.top.b - skyCheck.gradient.top.r >
+      skyCheck.gradient.horizon.b - skyCheck.gradient.horizon.r,
+    `[${label}] sky fades from blue overhead to a paler horizon`,
+  );
+
   const stats = await page.evaluate(() => window.__GAME__.stats());
   check(
     stats.buildings > 3000 && stats.roads > 250,
@@ -266,12 +300,15 @@ for (const [label, opts] of [
     // the real Space key, in the live game loop; holding it must not keep bouncing
     const jumpsBefore = await page.evaluate(() => window.__GAME__.jumps());
     await page.keyboard.down("Space");
-    await page.waitForTimeout(200);
-    const up = await page.evaluate(() => window.__GAME__.player().z);
+    // wait for the jump to show up in the live loop (frame times vary a lot in the test browser)
+    const up = await page
+      .waitForFunction(() => window.__GAME__.player().z > 0.05, null, { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
     await page.waitForTimeout(1800);
     await page.keyboard.up("Space");
     const jumpsHeld = (await page.evaluate(() => window.__GAME__.jumps())) - jumpsBefore;
-    check(up > 0.05, `[${label}] Space jumps (${up.toFixed(2)} m after 0.2 s)`);
+    check(up, `[${label}] Space jumps (player leaves the ground)`);
     check(jumpsHeld === 1, `[${label}] holding Space for 2 s gives exactly one jump (got ${jumpsHeld})`);
   } else {
     const box = (sel) =>
@@ -289,6 +326,25 @@ for (const [label, opts] of [
     check((await page.evaluate(() => window.__GAME__.player().z)) > 0.05, `[${label}] tapping Jump jumps`);
     await page.waitForTimeout(900);
   }
+
+  // quality switch: High has sun shadows, Low turns them off (and stays within budget)
+  const q0 = await page.evaluate(() => window.__GAME__.quality());
+  if (q0.quality === "low") await page.click("#btnQuality");
+  const qHigh = await page.evaluate(() => window.__GAME__.quality());
+  await page.click("#btnQuality");
+  await page.waitForTimeout(300);
+  const qLow = await page.evaluate(() => window.__GAME__.quality());
+  const lowStats = await page.evaluate(() => window.__GAME__.stats());
+  check(qHigh.quality === "high" && qHigh.shadows, `[${label}] Quality: High has sun shadows`);
+  check(
+    qLow.quality === "low" && !qLow.shadows && qLow.pixelRatio === 1,
+    `[${label}] Quality: Low turns shadows off`,
+  );
+  check(
+    lowStats.drawCalls <= MAX_DRAW_CALLS,
+    `[${label}] Low quality within draw-call budget (${lowStats.drawCalls})`,
+  );
+  await page.click("#btnQuality"); // back to High for the remaining screenshots
 
   // estimates toggle tints estimated roads and is reversible
   await page.click("#btnEstimates");
@@ -310,6 +366,25 @@ for (const [label, opts] of [
   if (label === "phone") check(await page.isVisible("#joystick"), `[${label}] touch joystick is shown`);
   await page.close();
 }
+// a budget phone (4 cores, 3 GB) starts on Low quality so it stays smooth
+{
+  const ctx = await browser.newContext({
+    viewport: { width: 874, height: 402 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  await ctx.addInitScript(() => {
+    Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 4 });
+    Object.defineProperty(navigator, "deviceMemory", { get: () => 3 });
+  });
+  const page = await ctx.newPage();
+  await page.goto(url);
+  await page.waitForFunction(() => window.__GAME__ && window.__GAME__.ready, null, { timeout: MAX_LOAD_MS });
+  const q = await page.evaluate(() => window.__GAME__.quality());
+  check(q.quality === "low" && !q.shadows, "[budget phone] starts on Low quality (no shadows)");
+  await ctx.close();
+}
+
 // a phone held upright: the game asks to be turned sideways and waits
 {
   const page = await browser.newPage({

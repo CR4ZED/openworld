@@ -14,7 +14,11 @@ import {
   roadWidth,
   surfaceMaterial,
 } from "./resolve";
+import { GROUND_TILE_M, groundTexture, roadTexture, TILE_M } from "./textures";
 import type { Pt, Road, World } from "./types";
+
+/** Multiplied with a shared texture to tell similar surfaces apart (e.g. plain mud vs red mud). */
+const TEXTURE_TINT: Record<string, string> = { paving: "#d6d2cc", gravel: "#d8d0c6", mud: "#b8a48d" };
 
 export const SURFACE_COLORS: Record<string, string> = {
   concrete: "#a3a39f",
@@ -65,32 +69,54 @@ export function ribbon(points: Pt[], width: number, y: number, offset = 0): THRE
     left.push(new THREE.Vector3(cx - (nx * width) / 2, y, -(cy - (ny * width) / 2)));
     right.push(new THREE.Vector3(cx + (nx * width) / 2, y, -(cy + (ny * width) / 2)));
   }
+  // u = metres along the road (textures repeat every TILE_M metres), v = 0 at the left edge, 1 at the right
+  const along: number[] = [0];
+  for (let i = 1; i < n; i++)
+    along.push(
+      along[i - 1]! + Math.hypot(points[i]![0] - points[i - 1]![0], points[i]![1] - points[i - 1]![1]),
+    );
   const pos: number[] = [];
+  const uv: number[] = [];
   for (let i = 0; i < n - 1; i++) {
     const l0 = left[i]!,
       l1 = left[i + 1]!,
       r0 = right[i]!,
       r1 = right[i + 1]!;
+    const u0 = along[i]!,
+      u1 = along[i + 1]!;
     pos.push(l0.x, l0.y, l0.z, r0.x, r0.y, r0.z, l1.x, l1.y, l1.z);
+    uv.push(u0, 0, u0, 1, u1, 0);
     pos.push(r0.x, r0.y, r0.z, r1.x, r1.y, r1.z, l1.x, l1.y, l1.z);
+    uv.push(u0, 1, u1, 1, u1, 0);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
   g.computeVertexNormals();
   return g;
 }
 
-function mergeInto(group: THREE.Group, geos: THREE.BufferGeometry[], material: THREE.Material, name: string) {
-  if (!geos.length) return;
+function mergeInto(
+  group: THREE.Group,
+  geos: THREE.BufferGeometry[],
+  material: THREE.Material,
+  name: string,
+  shadows: { cast?: boolean; receive?: boolean } = { receive: true },
+): THREE.Mesh | null {
+  if (!geos.length) return null;
   const merged = mergeGeometries(geos, false);
   for (const g of geos) g.dispose();
-  if (!merged) return;
+  if (!merged) return null;
   const mesh = new THREE.Mesh(merged, material);
   mesh.name = name;
+  mesh.castShadow = !!shadows.cast;
+  mesh.receiveShadow = !!shadows.receive;
   group.add(mesh);
+  return mesh;
 }
 
 const ROOF_COLOR = new THREE.Color("#bdbab3");
+const WALL_BASE_SHADE = 0.8;
 /** Pastel wall colours common on colony houses; picked per building from its id so it never changes. */
 const WALL_COLORS = ["#efe6d2", "#e8d9c0", "#f1e3c6", "#e3e7d6", "#e9dcd5", "#dfe5e8", "#f0dcc0", "#e6e0cf"];
 function hashString(s: string): number {
@@ -106,7 +132,12 @@ export function buildWorld(w: World): BuiltWorld {
   const lambert = (color: string) => new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide });
 
   // ground: dusty earth disc a little bigger than the mapped area
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(R * 1.15, 96), lambert("#b8ad92"));
+  const groundTex = groundTexture();
+  groundTex.repeat.set((R * 2.3) / GROUND_TILE_M, (R * 2.3) / GROUND_TILE_M);
+  const groundMat = lambert("#ffffff");
+  groundMat.map = groundTex;
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(R * 1.15, 96), groundMat);
+  ground.receiveShadow = true;
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = Y.ground;
   ground.name = "ground";
@@ -143,9 +174,20 @@ export function buildWorld(w: World): BuiltWorld {
   const estimateMaterials: THREE.MeshLambertMaterial[] = [];
   for (const [key, geos] of buckets) {
     const [matKey, est] = key.split("|") as [string, string];
-    const color =
-      matKey === "drain-open" ? "#3d3a33" : matKey === "drain-covered" ? "#b9b4aa" : SURFACE_COLORS[matKey];
+    const tex = roadTexture(matKey);
+    // textured surfaces use white (or a light tint) so the texture shows its own colours
+    const color = matKey.startsWith("drain")
+      ? matKey === "drain-open"
+        ? "#3d3a33"
+        : "#b9b4aa"
+      : tex
+        ? (TEXTURE_TINT[matKey] ?? "#ffffff")
+        : SURFACE_COLORS[matKey];
     const m = lambert(color ?? "#888888");
+    if (tex) {
+      tex.repeat.set(1 / (TILE_M[matKey] ?? 4), 1);
+      m.map = tex;
+    }
     m.userData.baseColor = new THREE.Color(color ?? "#888888");
     if (est === "est") estimateMaterials.push(m);
     mergeInto(group, geos, m, `roads:${key}`);
@@ -167,12 +209,25 @@ export function buildWorld(w: World): BuiltWorld {
     const n = flat.getAttribute("position").count;
     const colors = new Float32Array(n * 3);
     // flat RCC roofs are bare grey concrete; walls are painted
-    for (let i = 0; i < n; i++) (normals.getY(i) > 0.5 ? ROOF_COLOR : wall).toArray(colors, i * 3);
+    const pos = flat.getAttribute("position");
+    for (let i = 0; i < n; i++) {
+      if (normals.getY(i) > 0.5) ROOF_COLOR.toArray(colors, i * 3);
+      // walls get darker towards the ground (splashed dust and damp), like real compound and house walls
+      else if (pos.getY(i) < 0.01)
+        wall
+          .clone()
+          .multiplyScalar(WALL_BASE_SHADE)
+          .toArray(colors, i * 3);
+      else wall.toArray(colors, i * 3);
+    }
     flat.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     bGeos.push(flat);
     buildingCount++;
   }
-  mergeInto(group, bGeos, new THREE.MeshLambertMaterial({ vertexColors: true }), "buildings");
+  mergeInto(group, bGeos, new THREE.MeshLambertMaterial({ vertexColors: true }), "buildings", {
+    cast: true,
+    receive: true,
+  });
 
   // restricted areas: flat ground and a plain boundary wall, nothing inside
   let walls = 0;
@@ -199,7 +254,7 @@ export function buildWorld(w: World): BuiltWorld {
     }
   }
   mergeInto(group, zoneGeos, lambert("#c9b9a6"), "restricted-ground");
-  mergeInto(group, wallGeos, lambert("#b8b2a6"), "restricted-walls");
+  mergeInto(group, wallGeos, lambert("#b8b2a6"), "restricted-walls", { cast: true, receive: true });
 
   return {
     group,
