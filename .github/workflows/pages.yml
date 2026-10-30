@@ -1,25 +1,27 @@
 name: deploy-pages
 
-# Publishes the latest map to GitHub Pages after every change to main.
+# Publishes the latest map to GitHub Pages (gh-pages branch, site root) after every change to main.
 # The full test suite runs first; nothing is published if any check fails.
+# PR previews live under /pr-preview/pr-<n>/ on the same branch and are left untouched here.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
+  pull-requests: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: gh-pages
+  cancel-in-progress: false
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      page_url: ${{ steps.url.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,16 +39,40 @@ jobs:
           mkdir -p site
           cp viewer/dist/fci_colony_map.html site/index.html
           touch site/.nojekyll
-      - uses: actions/upload-pages-artifact@v3
+      - name: Publish to gh-pages (keeps PR previews)
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          path: site
+          folder: site
+          branch: gh-pages
+          clean-exclude: pr-preview/
+      - id: url
+        run: echo "page_url=https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/" >> "$GITHUB_OUTPUT"
 
-  deploy:
-    needs: build
+  # Comment on the merged pull request(s): live link on success,
+  # a clear "not published" note if checks or deployment failed.
+  notify:
+    needs: [build-and-deploy]
+    if: always()
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - uses: actions/github-script@v7
+        env:
+          RESULT: ${{ needs.build-and-deploy.result }}
+          PAGE_URL: ${{ needs.build-and-deploy.outputs.page_url }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha });
+            const merged = prs.filter(p => p.merged_at);
+            if (!merged.length) { core.info(`No merged pull request for ${sha}; nothing to comment on.`); return; }
+            const ok = process.env.RESULT === 'success';
+            const url = process.env.PAGE_URL || `https://${owner.toLowerCase()}.github.io/${repo}/`;
+            const body = ok
+              ? `### Deployed\nThe map from this pull request is live: ${url}\n\nAll checks passed before publishing. Commit \`${sha.slice(0, 7)}\` · [run details](${runUrl})`
+              : `### Not deployed\nChecks or deployment failed (${process.env.RESULT}). The live site still shows the previous version.\n\nCommit \`${sha.slice(0, 7)}\` · [run details](${runUrl})`;
+            for (const pr of merged) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+              core.info(`Commented on #${pr.number}`);
+            }

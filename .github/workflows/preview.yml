@@ -1,0 +1,65 @@
+name: pr-preview
+
+# On-demand preview of a pull request on GitHub Pages.
+# Add the "preview" label to a PR -> it is built, fully tested, and published to
+#   https://<owner>.github.io/<repo>/pr-preview/pr-<number>/
+# New pushes to a labelled PR update the preview. Removing the label or closing the PR deletes it.
+# The preview action posts (and keeps updating) a comment on the PR with the preview link.
+on:
+  pull_request:
+    types: [labeled, unlabeled, synchronize, reopened, closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy-preview:
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.action != 'unlabeled' &&
+      contains(github.event.pull_request.labels.*.name, 'preview')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+      - run: npx playwright install --with-deps chromium
+      - name: Build and test (preview only if everything passes)
+        run: npm test
+      - name: Assemble site
+        run: |
+          mkdir -p site
+          cp viewer/dist/fci_colony_map.html site/index.html
+          touch site/.nojekyll
+      - name: Publish preview and comment on the PR
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: site
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          action: deploy
+
+  remove-preview:
+    # Label removed, or labelled PR closed/merged -> delete its preview folder.
+    if: >-
+      (github.event.action == 'unlabeled' && github.event.label.name == 'preview') ||
+      (github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'preview'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rossjrw/pr-preview-action@v1
+        with:
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          action: remove

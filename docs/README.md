@@ -5,7 +5,10 @@ Living documents kept in Claude (owner access):
 - World realism and scaling spec: https://claude.ai/artifact/DmyKJGV9mBBR8MFAJWEzG9
 - Testing and guardrails plan: https://claude.ai/artifact/QrwRZKhGdeY2bgCWX2BRSo
 - 2D map (latest build): https://claude.ai/artifact/4JojChQnjstGmU46YNsXju
-- Public site (GitHub Pages, once enabled): https://cr4zed.github.io/openworld/ — rebuilt and re-tested on every change to main
+- Public site (GitHub Pages, once enabled): https://cr4zed.github.io/openworld/ — rebuilt and re-tested on every change to main;
+  the merged PR gets a comment with the live link (or a "not deployed" note if checks failed).
+- PR previews: add the `preview` label to a PR -> https://cr4zed.github.io/openworld/pr-preview/pr-<number>/
+  (updates on every push, removed when the label is removed or the PR closes; link posted on the PR).
 
 ## Survey status (FCI Colony)
 
