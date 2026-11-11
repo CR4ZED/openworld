@@ -574,7 +574,7 @@ for (const [label, opts] of [
     await page.tap("#btnRide");
   }
   const rode = await page
-    .waitForFunction(() => window.__GAME__.riding(), null, { timeout: 5000 })
+    .waitForFunction(() => window.__GAME__.riding(), null, { timeout: 30000 }) // walks over and gets on (~1.5 s game time)
     .then(() => true)
     .catch(() => false);
   check(rode, `[${label}] ${label === "desktop" ? "E" : "Ride button"} gets you on the scooter`);
@@ -628,6 +628,17 @@ for (const [label, opts] of [
     const stillOn = w.riding();
     w.step(3, { forward: -1, strafe: 0, run: false });
     w.step(1 / 30, { forward: 0, strafe: 0, run: false, use: true });
+    // getting off is animated: swing the leg back over and step down (no teleporting)
+    let dismountSeen = false,
+      jump = 0,
+      last = w.joints().head;
+    for (let i = 0; i < 24; i++) {
+      w.step(1 / 30, { forward: 0, strafe: 0, run: false });
+      if (w.act()?.kind === "dismount") dismountSeen = true;
+      const h = w.joints().head;
+      jump = Math.max(jump, Math.hypot(h.x - last.x, h.y - last.y, h.z - last.z));
+      last = h;
+    }
     const s = w.scooter();
     const p = w.player();
     const offNow = !w.riding();
@@ -644,8 +655,14 @@ for (const [label, opts] of [
       inside,
       stays: Math.hypot(s2.x - s.x, s2.y - s.y) < 1e-6 && Math.abs(s2.speed) < 1e-6,
       hornOnFoot: w.honks() - honksOnFoot,
+      dismountSeen,
+      jump,
     };
   }, start);
+  check(
+    off.dismountSeen && off.jump < 0.15,
+    `[${label}] getting off is animated and smooth (head moves at most ${off.jump.toFixed(2)} m per frame)`,
+  );
   check(off.stillOn, `[${label}] can't get off at ${off.fast.toFixed(0)} km/h ("slow down")`);
   check(
     off.offNow && off.gap > 0.5 && off.gap < 1.6 && !off.inside,
@@ -680,6 +697,7 @@ for (const [label, opts] of [
           w.placeScooter(sx, sy, yaw);
           w.teleport(sx - Math.sin(yaw) * 1, sy - Math.cos(yaw) * 1, yaw);
           w.step(1 / 30, { forward: 0, strafe: 0, run: false, use: true });
+          w.step(2.5, { forward: 0, strafe: 0, run: false }); // walk to its side, swing a leg over
           if (!w.riding()) return { found: false, why: "could not get on" };
           let everInside = false;
           let peak = 0;
@@ -692,22 +710,34 @@ for (const [label, opts] of [
           }
           const thrown = !w.riding() && w.crashes() === crashes0 + 1;
           const down = w.downFor() > 0;
-          // try to walk while lying on the ground: nothing happens
+          // film the fall frame by frame (30 fps): thrown, lying, getting up. Pressing W does nothing meanwhile.
+          const fall = [];
           const p0 = w.player();
-          w.step(0.5, { forward: 1, strafe: 0, run: false });
-          const p1 = w.player();
-          const stuck = Math.hypot(p1.x - p0.x, p1.y - p0.y) < 0.05;
-          w.step(1.5, { forward: 0, strafe: 0, run: false }); // get up; the scooter slides to a stop
+          let stuck = true;
+          for (let i = 0; i < 150 && (i < 3 || w.downFor() > 0); i++) {
+            w.step(1 / 30, { forward: i < 40 ? 1 : 0, strafe: 0, run: false });
+            const q = w.player();
+            if (i < 40 && w.act()?.kind !== "thrown" && Math.hypot(q.x - p0.x, q.y - p0.y) > 2.2)
+              stuck = false;
+            fall.push({ kind: w.act()?.kind ?? "-", j: w.joints() });
+          }
+          w.step(0.5, { forward: 0, strafe: 0, run: false }); // the scooter slides to a stop
           const s = w.scooter();
           const p = w.player();
           const riderInside = w.blocked(p.x, p.y);
           const fallen = s.fallen;
           const scooterInside = w.blocked(s.x, s.y, 0.3);
-          // walk to the scooter and pick it up
-          w.teleport(p.x, p.y, p.yaw);
+          // E: walk to its side, bend, lift it upright, swing a leg over (filmed frame by frame)
           const near = Math.hypot(p.x - s.x, p.y - s.y) <= 2.5;
           w.step(1 / 30, { forward: 0, strafe: 0, run: false, use: true });
+          const lift = [];
+          for (let i = 0; i < 150 && !w.riding(); i++) {
+            w.step(1 / 30, { forward: 0, strafe: 0, run: false });
+            lift.push({ kind: w.act()?.kind ?? "-", lean: w.scooter().lean, j: w.joints() });
+          }
           return {
+            fall,
+            lift,
             found: true,
             everInside,
             peak,
@@ -740,6 +770,60 @@ for (const [label, opts] of [
     crash.near && crash.pickedUp,
     `[${label}] E next to the fallen scooter picks it up and you ride again`,
   );
+  // owner: "he just falls flat, then gets up like a robot": the fall must be a real motion
+  {
+    const f = crash.fall ?? [];
+    const of = (k) => f.filter((x) => x.kind === k);
+    const maxStep = (frames) => {
+      let m = 0;
+      for (let i = 1; i < frames.length; i++) {
+        const a = frames[i - 1].j.head,
+          b = frames[i].j.head;
+        m = Math.max(m, Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+      }
+      return m;
+    };
+    const airborne = Math.max(0, ...of("thrown").map((x) => x.j.pelvis.z));
+    const lying = of("down");
+    const kneeling = of("getUp").filter((x) => x.j.pelvis.z > 0.35 && x.j.pelvis.z < 0.7).length;
+    const lowest = Math.min(...f.map((x) => Math.min(x.j.head.z, x.j.footL.z, x.j.footR.z)));
+    check(airborne > 1.0, `[${label}] thrown off in an arc (hips up to ${airborne.toFixed(2)} m)`);
+    check(
+      lying.length > 10 && lying.every((x) => x.j.pelvis.z < 0.3 && x.j.head.z < 0.45),
+      `[${label}] lands and lies on the ground for ${(lying.length / 30).toFixed(1)} s`,
+    );
+    check(
+      kneeling >= 6,
+      `[${label}] gets up through sitting and kneeling, not a stiff flip (${(kneeling / 30).toFixed(2)} s half-way up)`,
+    );
+    check(
+      maxStep(f) < 0.3 && maxStep(f.filter((x) => x.kind !== "thrown")) < 0.15,
+      `[${label}] the fall and getting up are smooth (head moves at most ${maxStep(f).toFixed(2)} m per frame)`,
+    );
+    check(
+      lowest > -0.06,
+      `[${label}] head and feet never sink into the ground (lowest ${lowest.toFixed(2)} m)`,
+    );
+    check(f.at(-1)?.j.pelvis.z > 0.88, `[${label}] ends standing up`);
+    const l = crash.lift ?? [];
+    const kinds = [...new Set(l.map((x) => x.kind))];
+    const lifting = l.filter((x) => x.kind === "lift");
+    const leans = lifting.map((x) => Math.abs(x.lean));
+    const gradual = new Set(leans.map((v) => v.toFixed(2))).size;
+    const monotone = leans.every((v, i) => i === 0 || v <= leans[i - 1] + 1e-6);
+    check(
+      kinds.includes("lift") && kinds.includes("mount") && kinds.indexOf("lift") < kinds.indexOf("mount"),
+      `[${label}] picking up: ${kinds.join(" → ")}`,
+    );
+    check(
+      Math.min(...lifting.map((x) => x.j.pelvis.z)) < 0.82 && gradual >= 8 && monotone,
+      `[${label}] bends down and the scooter comes up gradually (${gradual} steps), not in one jump`,
+    );
+    check(
+      maxStep(l) < 0.15,
+      `[${label}] picking up and getting on are smooth (${maxStep(l).toFixed(2)} m per frame)`,
+    );
+  }
 
   // camera never goes inside a building: stand with your back to a wall
   const backToWall = await g(() => {
@@ -747,6 +831,7 @@ for (const [label, opts] of [
     if (w.riding()) {
       w.step(4, { forward: -1, strafe: 0, run: false });
       w.step(1 / 30, { forward: 0, strafe: 0, run: false, use: true });
+      w.step(1, { forward: 0, strafe: 0, run: false }); // step off
     }
     const p = w.player();
     const e = w.wallNear(p.x, p.y, 8, 120);
