@@ -5,6 +5,10 @@ export interface Input {
   strafe: number; // -1..1 (right positive)
   run: boolean;
   jump?: boolean; // true once per press of Space / the Jump button
+  use?: boolean; // true once per press of E / the Ride button: get on or off the scooter
+  horn?: boolean; // true once per press of H / the Horn button
+  view?: boolean; // true once per press of V: switch third person / first person
+  walk?: boolean; // true once per press of C: switch walking / jogging
 }
 
 export interface Look {
@@ -18,19 +22,33 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
   const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
   if (isTouch) document.body.classList.add("touch");
 
-  let jumpPressed = false;
+  // one-shot actions: set on press, cleared when read (holding a key doesn't repeat the action)
+  const pressed = { jump: false, use: false, horn: false, view: false, walk: false };
+  const KEY_ACTIONS: Record<string, keyof typeof pressed> = {
+    Space: "jump",
+    KeyE: "use",
+    KeyH: "horn",
+    KeyV: "view",
+    KeyC: "walk",
+  };
   addEventListener("keydown", (e) => {
     keys.add(e.code);
-    if (e.code === "Space") {
-      e.preventDefault(); // don't scroll the page
-      if (!e.repeat) jumpPressed = true; // one jump per press, holding Space doesn't bounce
-    }
+    const action = KEY_ACTIONS[e.code];
+    if (!action) return;
+    if (e.code === "Space") e.preventDefault(); // don't scroll the page
+    if (!e.repeat) pressed[action] = true;
   });
-  const jumpBtn = document.getElementById("btnJump");
-  jumpBtn?.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    jumpPressed = true;
-  });
+  const BUTTON_ACTIONS: [string, keyof typeof pressed][] = [
+    ["btnJump", "jump"],
+    ["btnRide", "use"],
+    ["btnHorn", "horn"],
+  ];
+  for (const [id, action] of BUTTON_ACTIONS) {
+    document.getElementById(id)?.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      pressed[action] = true;
+    });
+  }
   addEventListener("keyup", (e) => keys.delete(e.code));
   addEventListener("blur", () => keys.clear());
 
@@ -112,13 +130,14 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
     const k = (c: string) => (keys.has(c) ? 1 : 0);
     const forward = k("KeyW") + k("ArrowUp") - k("KeyS") - k("ArrowDown") - stick.y;
     const strafe = k("KeyD") + k("ArrowRight") - k("KeyA") - k("ArrowLeft") + stick.x;
-    const jump = jumpPressed;
-    jumpPressed = false;
+    const once = { ...pressed };
+    pressed.jump = pressed.use = pressed.horn = pressed.view = pressed.walk = false;
     return {
       forward: Math.max(-1, Math.min(1, forward)),
       strafe: Math.max(-1, Math.min(1, strafe)),
-      run: keys.has("ShiftLeft") || keys.has("ShiftRight") || Math.hypot(stick.x, stick.y) > 0.95,
-      jump,
+      // Shift sprints; on phones the joystick walks when pushed lightly and jogs when pushed fully
+      run: keys.has("ShiftLeft") || keys.has("ShiftRight"),
+      ...once,
     };
   };
   return { read, isTouch, turn: (dx: number, dy: number) => turn(dx, dy, MOUSE_SENSITIVITY), locked };

@@ -96,11 +96,11 @@ export function makeCollider(w: World) {
     return best;
   };
 
-  const blocked = (x: number, y: number) =>
-    Math.hypot(x, y) > w.meta.radius_m || inside(x, y) || nearEdge(x, y, PLAYER_RADIUS);
+  const blocked = (x: number, y: number, r = PLAYER_RADIUS) =>
+    Math.hypot(x, y) > w.meta.radius_m || inside(x, y) || nearEdge(x, y, r);
 
   /** Move from (x, y) by (dx, dy); slides along walls. Returns the new position. */
-  const move = (x: number, y: number, dx: number, dy: number): Pt => {
+  const move = (x: number, y: number, dx: number, dy: number, r = PLAYER_RADIUS): Pt => {
     // small sub-steps so fast movement can't tunnel through thin walls
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 0.2));
     let px = x,
@@ -108,13 +108,13 @@ export function makeCollider(w: World) {
     for (let s = 0; s < steps; s++) {
       const sx = dx / steps,
         sy = dy / steps;
-      if (!blocked(px + sx, py + sy)) {
+      if (!blocked(px + sx, py + sy, r)) {
         px += sx;
         py += sy;
         continue;
       }
       // slide along the wall we hit: keep only the part of the step parallel to that wall
-      const e = nearestEdge(px + sx, py + sy, PLAYER_RADIUS + 0.5);
+      const e = nearestEdge(px + sx, py + sy, r + 0.5);
       if (!e) break;
       const ex = e.b[0] - e.a[0],
         ey = e.b[1] - e.a[1];
@@ -122,12 +122,35 @@ export function makeCollider(w: World) {
       const along = (sx * ex + sy * ey) / len;
       const tx = (ex / len) * along,
         ty = (ey / len) * along;
-      if (Math.hypot(tx, ty) > 1e-4 && !blocked(px + tx, py + ty)) {
+      if (Math.hypot(tx, ty) > 1e-4 && !blocked(px + tx, py + ty, r)) {
         px += tx;
         py += ty;
       } else break;
     }
     return [px, py];
+  };
+
+  /**
+   * Direction pointing away from the wall closest to (x, y) within r metres (unit vector), or null in the open.
+   * Used for crash physics: what you hit decides how you bounce and slide.
+   */
+  const normal = (x: number, y: number, r: number): Pt | null => {
+    const e = nearestEdge(x, y, r);
+    if (e) {
+      const dx = e.b[0] - e.a[0],
+        dy = e.b[1] - e.a[1];
+      const t = Math.max(0, Math.min(1, ((x - e.a[0]) * dx + (y - e.a[1]) * dy) / (dx * dx + dy * dy || 1)));
+      const nx = x - (e.a[0] + t * dx),
+        ny = y - (e.a[1] + t * dy);
+      const d = Math.hypot(nx, ny);
+      if (d > 1e-6) return [nx / d, ny / d];
+      const len = Math.hypot(dx, dy) || 1;
+      return [-dy / len, dx / len];
+    }
+    // the edge of the map behaves like a wall too
+    const d = Math.hypot(x, y);
+    if (d > w.meta.radius_m - r) return [-x / d, -y / d];
+    return null;
   };
 
   /** A building wall near (x, y) at least `minLen` m long, for tests. */
@@ -146,5 +169,5 @@ export function makeCollider(w: World) {
     return best;
   };
 
-  return { blocked, move, inside, wallNear };
+  return { blocked, move, inside, wallNear, normal };
 }

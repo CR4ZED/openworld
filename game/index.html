@@ -15,7 +15,7 @@
   <body>
     <canvas id="scene" aria-label="3D view of the colony"></canvas>
     <header id="hud">
-      <div class="title">FCI Colony <span class="ver">· 3D v0.1</span></div>
+      <div class="title">FCI Colony <span class="ver">· 3D v0.2</span></div>
       <div id="where" aria-live="polite">Loading the colony…</div>
       <div class="actions">
         <button id="btnQuality">Quality: High</button>
@@ -25,10 +25,15 @@
     </header>
     <div id="joystick" aria-label="Move"><div id="stick"></div></div>
     <button id="btnJump" aria-label="Jump">Jump</button>
+    <button id="btnRide" aria-label="Get on or off the scooter">Ride</button>
+    <button id="btnHorn" aria-label="Horn">Horn</button>
+    <div id="prompt" role="status" hidden></div>
+    <div id="speedo" aria-label="Speed">0 km/h</div>
     <div id="crosshair" aria-hidden="true"></div>
     <div id="help">
       <span class="unlocked">Click the view to look around with the mouse</span>
-      <span class="when-locked">Esc to free the mouse</span> · Move: WASD / arrows · Run: Shift · Jump: Space
+      <span class="when-locked">Esc to free the mouse</span> · Move: WASD · Sprint: Shift · Walk: C · Jump:
+      Space · Ride: E · Camera: V
     </div>
     <div id="fps"></div>
     <div id="attrib">
