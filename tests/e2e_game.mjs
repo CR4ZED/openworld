@@ -458,6 +458,104 @@ for (const [label, opts] of [
     await page.waitForTimeout(900);
   }
 
+  // ---- minimap (owner 2026-11-11: "a map showing the path in realtime as we move around, like games do") ----
+  {
+    const g2 = (fn, arg) => page.evaluate(fn, arg);
+    const waitFrames = async (n = 2) => {
+      const f0 = await g2(() => window.__GAME__.frames());
+      await page.waitForFunction((f) => window.__GAME__.frames() >= f, f0 + n, { timeout: 10000 });
+    };
+    await g2(({ x, y, yaw }) => window.__GAME__.teleport(x, y, yaw), start);
+    await waitFrames();
+    const box = (sel) =>
+      page.evaluate((q) => document.querySelector(q)?.getBoundingClientRect().toJSON(), sel);
+    const hit = (a, b) =>
+      a && b && !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+    const mm = await box("#minimap");
+    const vw = opts.viewport.width,
+      vh = opts.viewport.height;
+    check(await page.isVisible("#minimap"), `[${label}] minimap shown`);
+    if (label === "desktop")
+      check(
+        mm.left < 40 && vh - mm.bottom < 40 && mm.width >= 150,
+        `[${label}] minimap bottom-left, ${Math.round(mm.width)} px`,
+      );
+    else
+      check(
+        mm.left < 40 && mm.top < vh / 2 && mm.width >= 100,
+        `[${label}] minimap top-left (joystick has the bottom-left), ${Math.round(mm.width)} px`,
+      );
+    const others = ["#help", "#attrib", "#joystick", "#btnJump", "#hud", "#fps"];
+    const clashes = [];
+    for (const sel of others) if ((await page.isVisible(sel)) && hit(mm, await box(sel))) clashes.push(sel);
+    check(clashes.length === 0, `[${label}] minimap clear of other controls ${clashes.join(" ")}`);
+    check(mm.right < vw / 2, `[${label}] minimap stays out of the middle of the view`);
+    // it draws a real map: several colours inside the circle, transparent corners, the player arrow in the middle
+    const px = await g2(() => {
+      const c = document.getElementById("minimap");
+      const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      const at = (x, y) => {
+        const i = (Math.floor(y) * c.width + Math.floor(x)) * 4;
+        return [d[i], d[i + 1], d[i + 2], d[i + 3]];
+      };
+      const seen = new Set();
+      for (let y = c.height * 0.15; y < c.height * 0.85; y += c.height / 40)
+        for (let x = c.width * 0.15; x < c.width * 0.85; x += c.width / 40) {
+          const p = at(x, y);
+          seen.add(`${p[0] >> 4},${p[1] >> 4},${p[2] >> 4}`);
+        }
+      return { distinct: seen.size, corner: at(1, 1)[3], centre: at(c.width / 2, c.height / 2) };
+    });
+    const [cr, cg, cb] = px.centre;
+    check(px.distinct >= 4, `[${label}] minimap draws the area (${px.distinct} colours)`);
+    check(px.corner === 0, `[${label}] minimap is round (corners see-through)`);
+    check(cr > 200 && cg > 160 && cb < 90, `[${label}] player arrow in the middle of the minimap`);
+    // it matches the data: the start lane is drawn in its surface colour, buildings and the restricted area too
+    const m = await g2(({ x, y }) => {
+      const g = window.__GAME__;
+      const l = g.landmarks();
+      return {
+        colours: g.minimapColours(),
+        lane: g.minimapSample(x, y),
+        building: l.building ? g.minimapSample(...l.building) : null,
+        restricted: l.restricted ? g.minimapSample(...l.restricted) : null,
+      };
+    }, start);
+    check(
+      m.lane === m.colours.SURFACE_COLOUR.concrete,
+      `[${label}] minimap draws the start lane as concrete, as surveyed (${m.lane})`,
+    );
+    check(m.building === m.colours.BUILDING, `[${label}] minimap draws buildings where the data has them`);
+    check(
+      m.restricted && m.restricted !== m.colours.GROUND && m.restricted !== m.colours.BUILDING,
+      `[${label}] minimap marks the restricted area (nothing drawn inside)`,
+    );
+    // it turns with the view, so straight ahead is always up
+    for (const yaw of [0.6, -2.0]) {
+      await g2((a) => window.__GAME__.setLook(a, 0), yaw);
+      await waitFrames();
+      const r = (await g2(() => window.__GAME__.minimap())).rotation;
+      check(Math.abs(r + yaw) < 1e-6, `[${label}] minimap turns with the view (looking ${yaw} rad)`);
+    }
+    // the trail grows as you move: a point every 2 m
+    const trail = await g2(({ x, y, yaw }) => {
+      const g = window.__GAME__;
+      g.teleport(x, y, yaw);
+      const n0 = g.minimap().trail;
+      g.step(3, { forward: 1, strafe: 0, run: false, walk: false });
+      const after = g.minimap();
+      const p = g.player();
+      return { added: after.trail - n0, end: after.trailEnd, p };
+    }, start);
+    check(
+      trail.added >= 4 && Math.hypot(trail.end[0] - trail.p.x, trail.end[1] - trail.p.y) < 2.01,
+      `[${label}] the trail follows you (${trail.added} new points in 3 s, ends where you are)`,
+    );
+    await waitFrames();
+    await page.screenshot({ path: path.join(outDir, `game_${label}_minimap.png`), clip: mm });
+    await g2(({ x, y, yaw }) => window.__GAME__.teleport(x, y, yaw), start);
+  }
+
   // ---- third-person camera and the scooter ----
   const g = (fn, arg) => page.evaluate(fn, arg);
   // the test browser can draw very slowly: wait for real frames rather than a fixed time

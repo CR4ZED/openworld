@@ -71,6 +71,11 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
   the scooter's side, bend and lift it if fallen (from the side you are on), swing a leg over; getting off swings
   the leg back. Tests film each action frame by frame: no joint below the ground, head moves < 0.15 m per frame
   (0.3 m while thrown), a real kneeling phase, gradual lift. Check new poses for feet/knees/hands vs the ground.
+- Minimap (owner 2026-11-11: "a map showing the path in realtime as we move around"): `game/src/minimap.ts`, a
+  round map bottom-left on desktop (top-left on phones, the joystick has bottom-left). Same data as the world: roads in
+  their surface colour, buildings, restricted area hatched with nothing inside. Turns with the view (ahead = up),
+  N marker, trail of where you've been (a point every 2 m; breaks on teleports), scooter dot, zooms out at speed.
+  Tests sample it against the data (start lane = concrete) and check it never covers other controls.
 - Phones play in landscape (owner, 2026-10-30). Android: Play button -> fullscreen + orientation lock. iPhone Safari
   cannot lock orientation, so portrait shows a full-screen "turn your phone sideways" prompt and the world waits.
   Tests run the phone in landscape and check the portrait prompt.

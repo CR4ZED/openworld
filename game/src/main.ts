@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { ON_FOOT, ON_SCOOTER, placeCamera, type View } from "./camera";
 import { makeCollider } from "./collision";
 import { makeControls, type Input, type Look } from "./controls";
+import { makeMinimap } from "./minimap";
 import { clipLength, clipPose, makeCharacter, makeScooter } from "./models";
 import { cycleLength, newWalker, PACE, walkStep, type Walker } from "./player";
 import { defaultQuality, saveQuality, type Quality } from "./quality";
@@ -55,6 +56,7 @@ async function main() {
   const collider = makeCollider(world);
   const roadAt = makeRoadLocator(world);
 
+  const minimap = makeMinimap(world, document.getElementById("minimap") as HTMLCanvasElement);
   const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 1500);
   const look: Look = { yaw: 0, pitch: 0 };
   // z = height above ground, vz = vertical speed, facing = where the body points (third person)
@@ -324,6 +326,7 @@ async function main() {
   const step = (dt: number, input: Input) => {
     if (!(dt > 0)) return;
     clockT += dt;
+    minimap.record(player.x, player.y); // the trail on the minimap: a point every 2 m travelled
     if (input.view) view = view === "third" ? "first" : "third";
     shake *= Math.exp(-dt * 6);
     if (scooter.fallen && act?.kind !== "lift") rideStep(scooter, dt, 0, 0, collider); // still sliding
@@ -475,6 +478,17 @@ async function main() {
     sun.target.position.set(cx, 0, cz);
     sun.position.set(cx + SUN_OFFSET.x, SUN_OFFSET.y, cz + SUN_OFFSET.z);
     renderer.render(scene, camera);
+    minimap.draw(
+      {
+        x: player.x,
+        y: player.y,
+        yaw: look.yaw,
+        facing: player.facing,
+        speed: riding ? Math.abs(scooter.speed) : player.speed,
+        scooter: { x: scooter.x, y: scooter.y, show: !riding },
+      },
+      dt,
+    );
     updateHud();
     updateActions();
     framesDrawn++;
@@ -615,6 +629,32 @@ async function main() {
     },
     jumps: () => jumps,
     frames: () => framesDrawn,
+    minimap: () => ({
+      ...minimap.state,
+      trail: minimap.trail.length,
+      trailEnd: minimap.trail.at(-1) ?? null,
+    }),
+    minimapSample: (x: number, y: number) => minimap.sample(x, y),
+    minimapColours: () => minimap.colours,
+    /** A point inside a building, a restricted area, and on the start lane (for minimap tests). */
+    landmarks: () => {
+      const inside = (a: { points: Pt[] }) => {
+        // centroid of the polygon (fine for the convex-ish footprints we pick)
+        let cx = 0,
+          cy = 0;
+        for (const p of a.points) {
+          cx += p[0];
+          cy += p[1];
+        }
+        return [cx / a.points.length, cy / a.points.length] as Pt;
+      };
+      const big = world.areas
+        .filter((a) => a.kind === "building" && a.points.length <= 6)
+        .map((a) => ({ a, c: inside(a) }))
+        .find(({ c }) => collider.inside(c[0], c[1]));
+      const restricted = world.areas.find((a) => a.restricted);
+      return { building: big?.c ?? null, restricted: restricted ? inside(restricted) : null };
+    },
     skyGradient: () => {
       const col = skyDome.geometry.getAttribute("color");
       const pos = skyDome.geometry.getAttribute("position");
