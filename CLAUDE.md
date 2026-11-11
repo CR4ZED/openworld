@@ -5,6 +5,26 @@ The owner directs, tests and judges realism; Claude builds. First area: FCI Colo
 
 Reference docs (owner-maintained): "World realism and scaling spec" and "Testing and guardrails plan" (see docs/README.md).
 
+## Game studio framework (Claude Code Game Studios, installed 2026-11-11 at the owner's request)
+
+The [Claude Code Game Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) template (MIT, v1.3.0) is
+installed: 78 skills (`/start`, `/adopt`, `/playtest-report`, `/perf-profile`, `/bug-triage`, `/design-review`, ...),
+49 agents and hooks in `.claude/`, its docs in `docs/` and `.claude/docs/`, config in `project.yaml`.
+Its files are vendored unchanged (excluded from our formatters) so `.claude/docs/studio/UPGRADING.md` applies.
+
+- **Precedence:** this file's realism, engineering and owner rules win over anything in the template. The template's
+  own CLAUDE.md is kept at `.claude/docs/studio/template-CLAUDE.md` for reference.
+- **Collaboration:** the template asks before every write and never commits unasked. The owner's standing direction
+  overrides that here: Claude builds, tests, commits to feature branches and opens PRs on its own; merging to main
+  needs the owner's approval.
+- **Stack for the studio agents:** engine Web (`docs/engine-reference/web/`), TypeScript + three.js + Vite in `game/`
+  (not `src/`), Python data pipeline in `tools/`, tests in `tests/` (Python unittest + Playwright), npm scripts below.
+  Textures and models are made in code (no asset files yet).
+
+@.claude/docs/directory-structure.md
+@.claude/docs/coordination-rules.md
+@.claude/docs/coding-standards.md
+
 ## Realism rules (non-negotiable)
 
 - Nothing is invented silently. Every attribute is `{value, source}`; unknown = `null` value and `null` source.

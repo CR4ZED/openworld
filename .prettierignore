@@ -3,3 +3,20 @@ viewer/dist/
 test-results/
 data/
 package-lock.json
+
+# Claude Code Game Studios template: vendored as-is so template upgrades diff cleanly
+.claude/
+studio-tests/
+design/
+production/
+project.yaml
+.github/ISSUE_TEMPLATE/
+.github/PULL_REQUEST_TEMPLATE.md
+docs/CLAUDE.md
+docs/COLLABORATIVE-DESIGN-PRINCIPLE.md
+docs/WORKFLOW-GUIDE.md
+docs/architecture/
+docs/engine-reference/
+docs/migration-guide-v1.1.md
+docs/registry/
+docs/skill-flow-diagrams.md
