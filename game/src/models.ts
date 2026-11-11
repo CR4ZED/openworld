@@ -41,9 +41,313 @@ export interface GaitPose {
   airborne: boolean; // in a jump
 }
 
+/**
+ * A whole-body pose for actions (falling, getting up, lifting the scooter, getting on and off).
+ * Angles in radians, relative to the parent bone; positive x swings a limb forwards. pelvisPitch tips the whole
+ * body backwards (1.57 = lying on the back). Heights in metres above the character's origin (the ground).
+ */
+export interface Pose {
+  pelvisY: number;
+  pelvisPitch: number;
+  spine: number;
+  head: number;
+  thighL: number;
+  thighR: number;
+  shinL: number;
+  shinR: number;
+  footL: number;
+  footR: number;
+  armL: number;
+  armR: number;
+  armOut: number; // arms away from the sides
+  foreL: number;
+  foreR: number;
+}
+
+const pose = (p: Partial<Pose>): Pose => ({
+  pelvisY: 0.92,
+  pelvisPitch: 0,
+  spine: 0,
+  head: 0,
+  thighL: 0,
+  thighR: 0,
+  shinL: 0,
+  shinR: 0,
+  footL: 0,
+  footR: 0,
+  armL: 0,
+  armR: 0,
+  armOut: 0.07,
+  foreL: 0.15,
+  foreR: 0.15,
+  ...p,
+});
+
+/** Key poses. Heights were checked so knees, hands and feet touch the ground instead of sinking into it. */
+export const POSES = {
+  stand: pose({}),
+  seated: pose({
+    pelvisY: 0.85,
+    spine: -0.3,
+    head: 0.25,
+    thighL: 1.5,
+    thighR: 1.5,
+    shinL: -1.35,
+    shinR: -1.35,
+    footL: -0.15,
+    footR: -0.15,
+    armL: 1.3,
+    armR: 1.3,
+    foreL: 0.15,
+    foreR: 0.15,
+  }),
+  // flying off backwards: arms thrown up, legs folding
+  flail: pose({
+    pelvisY: 0.9,
+    pelvisPitch: 0.8,
+    spine: 0.2,
+    head: -0.35,
+    thighL: 0.9,
+    thighR: 0.6,
+    shinL: -1.0,
+    shinR: -0.7,
+    armL: 2.4,
+    armR: 2.1,
+    armOut: 0.9,
+    foreL: 0.5,
+    foreR: 0.4,
+  }),
+  // on the back, one knee up, head lifted a little, arms out
+  lie: pose({
+    pelvisY: 0.13,
+    pelvisPitch: 1.5,
+    spine: 0.05,
+    head: -0.25,
+    thighL: 0.5,
+    shinL: -1.1,
+    footL: 0.4,
+    thighR: 0.05,
+    shinR: -0.1,
+    armL: 0.05,
+    armR: 0.05,
+    armOut: 0.5,
+    foreL: 0.3,
+    foreR: 0.2,
+  }),
+  // sitting on the ground, legs forward, hands behind on the ground
+  sitUp: pose({
+    pelvisY: 0.13,
+    pelvisPitch: 0.15,
+    spine: -0.05,
+    head: -0.1,
+    thighL: 1.45,
+    thighR: 1.45,
+    shinL: -0.1,
+    shinR: -0.1,
+    footL: -0.3,
+    footR: -0.3,
+    armL: -0.6,
+    armR: -0.6,
+    armOut: 0.25,
+    foreL: 0,
+    foreR: 0,
+  }),
+  // drawing the knees up while sitting, feet sliding along the ground towards the hips
+  kneesUp1: pose({
+    pelvisY: 0.15,
+    pelvisPitch: 0.05,
+    spine: -0.2,
+    thighL: 1.8,
+    thighR: 1.8,
+    shinL: -0.75,
+    shinR: -0.75,
+    armL: -0.3,
+    armR: -0.3,
+    armOut: 0.2,
+  }),
+  kneesUp2: pose({
+    pelvisY: 0.18,
+    spine: -0.35,
+    thighL: 2.05,
+    thighR: 2.05,
+    shinL: -1.4,
+    shinR: -1.4,
+    armL: 0.2,
+    armR: 0.2,
+  }),
+  // feet tucked in front of the hips, leaning forward
+  tuck: pose({
+    pelvisY: 0.2,
+    spine: -0.6,
+    head: 0.3,
+    thighL: 2.1,
+    thighR: 2.1,
+    shinL: -2.5,
+    shinR: -2.5,
+    footL: 0.4,
+    footR: 0.4,
+    armL: 0.9,
+    armR: 0.9,
+  }),
+  // rolling forward over the feet, hands to the ground
+  rollForward: pose({
+    pelvisY: 0.45,
+    spine: -0.7,
+    head: 0.4,
+    thighL: 1.2,
+    thighR: 1.2,
+    shinL: -2.6,
+    shinR: -2.6,
+    footL: 0.9,
+    footR: 0.9,
+    armL: 0.9,
+    armR: 0.9,
+    foreL: 0.2,
+    foreR: 0.2,
+  }),
+  // one knee down (right), left foot planted, hand on the left knee
+  kneel: pose({
+    pelvisY: 0.56,
+    spine: -0.35,
+    head: 0.2,
+    thighL: 1.35,
+    shinL: -1.4,
+    footL: 0.05,
+    thighR: -0.15,
+    shinR: -1.45,
+    footR: 0.6,
+    armL: 0.9,
+    foreL: 0.6,
+    armR: -0.1,
+    foreR: 0.3,
+  }),
+  // pushing up out of a crouch
+  push: pose({
+    pelvisY: 0.72,
+    spine: -0.55,
+    head: 0.35,
+    thighL: 0.95,
+    thighR: 0.95,
+    shinL: -1.35,
+    shinR: -1.35,
+    footL: 0.4,
+    footR: 0.4,
+    armL: 0.6,
+    armR: 0.6,
+    foreL: 0.4,
+    foreR: 0.4,
+  }),
+  // bending at hips and knees to grab a scooter lying on the ground
+  bend: pose({
+    pelvisY: 0.78,
+    spine: -1.0,
+    head: 0.6,
+    thighL: 0.75,
+    thighR: 0.75,
+    shinL: -1.1,
+    shinR: -1.1,
+    footL: 0.35,
+    footR: 0.35,
+    armL: 1.0,
+    armR: 1.0,
+    armOut: 0.15,
+    foreL: 0.1,
+    foreR: 0.1,
+  }),
+  liftMid: pose({
+    pelvisY: 0.86,
+    spine: -0.5,
+    head: 0.3,
+    thighL: 0.4,
+    thighR: 0.4,
+    shinL: -0.6,
+    shinR: -0.6,
+    footL: 0.2,
+    footR: 0.2,
+    armL: 0.9,
+    armR: 0.9,
+    foreL: 0.5,
+    foreR: 0.5,
+  }),
+  // standing beside the scooter, hands on the handlebar
+  hold: pose({ armL: 0.7, armR: 0.7, foreL: 0.45, foreR: 0.45 }),
+  // swinging the right leg over the seat
+  mountMid: pose({
+    pelvisY: 0.93,
+    spine: -0.2,
+    thighL: 0.1,
+    thighR: 1.3,
+    shinR: -1.3,
+    armL: 1.2,
+    armR: 1.2,
+    foreL: 0.2,
+    foreR: 0.2,
+  }),
+};
+
+type Key = [number, Pose]; // [seconds, pose]
+/** Timelines (seconds). The game moves the character's root (flight, walking to the scooter) alongside. */
+export const CLIPS: Record<string, Key[]> = {
+  thrown: [
+    [0, POSES.seated],
+    [0.3, POSES.flail],
+    [0.6, POSES.lie],
+  ],
+  // lie -> sit up -> draw the knees in -> tuck -> roll forward -> one knee -> push up -> stand
+  getUp: [
+    [0, POSES.lie],
+    [0.45, POSES.sitUp],
+    [0.6, POSES.kneesUp1],
+    [0.75, POSES.kneesUp2],
+    [0.9, POSES.tuck],
+    [1.15, POSES.rollForward],
+    [1.45, POSES.kneel],
+    [1.75, POSES.push],
+    [2.15, POSES.stand],
+  ],
+  lift: [
+    [0, POSES.stand],
+    [0.45, POSES.bend],
+    [0.6, POSES.bend],
+    [0.95, POSES.liftMid],
+    [1.3, POSES.hold],
+  ],
+  mount: [
+    [0, POSES.hold],
+    [0.25, POSES.mountMid],
+    [0.5, POSES.seated],
+  ],
+  dismount: [
+    [0, POSES.seated],
+    [0.25, POSES.mountMid],
+    [0.5, POSES.stand],
+  ],
+};
+export const clipLength = (name: string) => CLIPS[name]!.at(-1)![0];
+
+const ease = (x: number) => x * x * (3 - 2 * x);
+/** The pose of a clip at time t: neighbouring key poses blended smoothly (no snapping). */
+export function clipPose(name: string, t: number): Pose {
+  const keys = CLIPS[name]!;
+  if (t <= keys[0]![0]) return keys[0]![1];
+  for (let i = 1; i < keys.length; i++) {
+    const [t1, p1] = keys[i]!;
+    const [t0, p0] = keys[i - 1]!;
+    if (t <= t1) {
+      const k = ease((t - t0) / (t1 - t0 || 1));
+      const out = { ...p0 };
+      for (const f of Object.keys(p0) as (keyof Pose)[]) out[f] = p0[f] + (p1[f] - p0[f]) * k;
+      return out;
+    }
+  }
+  return keys.at(-1)![1];
+}
+
 export interface Character {
   root: THREE.Group;
   animate(g: GaitPose): void;
+  /** Show an action pose instead of walking (t = running time, for breathing). */
+  applyPose(p: Pose, t: number): void;
   /** Joints by name (tests read foot positions and limb angles). */
   bones: Record<string, THREE.Bone>;
 }
@@ -154,6 +458,26 @@ export function makeCharacter(): Character {
   return {
     root,
     bones,
+    applyPose(p, t) {
+      reset();
+      const breathe = 0.015 * Math.sin(t * 2.2); // a little chest movement so held poses aren't frozen
+      b.pelvis.position.y = p.pelvisY;
+      b.pelvis.rotation.x = p.pelvisPitch;
+      b.spine.rotation.x = p.spine + breathe;
+      b.head.rotation.x = p.head;
+      bones.thighL!.rotation.x = p.thighL;
+      bones.thighR!.rotation.x = p.thighR;
+      bones.shinL!.rotation.x = p.shinL;
+      bones.shinR!.rotation.x = p.shinR;
+      bones.footL!.rotation.x = p.footL;
+      bones.footR!.rotation.x = p.footR;
+      bones.upperArmL!.rotation.x = p.armL;
+      bones.upperArmR!.rotation.x = p.armR;
+      bones.upperArmL!.rotation.z = -p.armOut;
+      bones.upperArmR!.rotation.z = p.armOut;
+      bones.forearmL!.rotation.x = p.foreL;
+      bones.forearmR!.rotation.x = p.foreR;
+    },
     animate({ speed, phase, t, seated, airborne }) {
       reset();
       if (seated) {

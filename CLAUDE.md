@@ -65,6 +65,12 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
   1.6, Shift = sprint 6.0; quick start/stop. The character is one skinned mesh with a skeleton (knees, elbows,
   hips, shoulders; 1 draw call). Gait phase follows ground covered so feet stay planted; tests check planted
   feet, knee bend, arm swing opposite the legs, and natural cadence (walk ~1.8, jog ~2.5, sprint ~3 steps/s).
+- Actions are animated, never snapped (owner 2026-11-11: "falls flat, gets up like a robot, no animation picking up
+  the vehicle"): key poses in `game/src/models.ts` (POSES/CLIPS) blended smoothly. Crash = thrown in an arc clear of
+  the scooter, lies ~0.7 s, gets up via sit, knees in, tuck, roll forward, one knee, push up (~2.2 s). E = walk to
+  the scooter's side, bend and lift it if fallen (from the side you are on), swing a leg over; getting off swings
+  the leg back. Tests film each action frame by frame: no joint below the ground, head moves < 0.15 m per frame
+  (0.3 m while thrown), a real kneeling phase, gradual lift. Check new poses for feet/knees/hands vs the ground.
 - Phones play in landscape (owner, 2026-10-30). Android: Play button -> fullscreen + orientation lock. iPhone Safari
   cannot lock orientation, so portrait shows a full-screen "turn your phone sideways" prompt and the world waits.
   Tests run the phone in landscape and check the portrait prompt.
@@ -93,6 +99,10 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Survey fields are defined once in `data/survey/street_survey_schema.json`, shared by the form and the importer.
 
 ## Lessons learned
+
+- 2026-11-11: blending joint angles straight from sitting to kneeling swung a foot 0.4 m through the ground; added
+  in-between poses (knees up, tuck, roll forward). The start of getting off drew the body at the scooter's centre
+  for one frame, then the seat (15 cm jump). Both caught by the frame-by-frame animation checks.
 
 - 2026-11-11: the first frame can have a zero time step; speed = distance / 0 made the gait phase NaN and froze
   the legs. Movement steps now ignore dt <= 0, and a test checks speed and phase are real numbers after loading.
