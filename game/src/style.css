@@ -363,3 +363,26 @@ body.touch.riding #btnJump {
 body.riding #speedo {
   display: block;
 }
+
+/* minimap: bottom-left on desktop (help line sits above it); top-left under the HUD on phones (joystick below) */
+#minimap {
+  position: fixed;
+  z-index: 2;
+  left: 12px;
+  bottom: calc(12px + var(--safe-bottom));
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+body:not(.touch) #help {
+  bottom: calc(12px + 180px + 10px + var(--safe-bottom));
+}
+body.touch #minimap {
+  left: calc(14px + env(safe-area-inset-left, 0px));
+  top: calc(44px + var(--safe-top));
+  bottom: auto;
+  width: 112px;
+  height: 112px;
+}
