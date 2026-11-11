@@ -226,6 +226,17 @@ for (const [label, opts] of [
   );
 
   if (label === "desktop") {
+    // the help line never runs under the map credits, also on a narrower laptop window
+    for (const width of [1280, 1000]) {
+      await page.setViewportSize({ width, height: 700 });
+      const clash = await page.evaluate(() => {
+        const a = document.getElementById("help").getBoundingClientRect();
+        const b = document.getElementById("attrib").getBoundingClientRect();
+        return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+      });
+      check(!clash, `[${label}] help text clear of the credits at ${width} px wide`);
+    }
+    await page.setViewportSize(opts.viewport);
     // mouse-look: click captures the mouse, moving it turns the view without dragging, Esc releases it
     await page.mouse.click(640, 400);
     await page.waitForTimeout(150);
@@ -326,6 +337,273 @@ for (const [label, opts] of [
     check((await page.evaluate(() => window.__GAME__.player().z)) > 0.05, `[${label}] tapping Jump jumps`);
     await page.waitForTimeout(900);
   }
+
+  // ---- third-person camera and the scooter ----
+  const g = (fn, arg) => page.evaluate(fn, arg);
+  // the test browser can draw very slowly: wait for real frames rather than a fixed time
+  const frames = async (n = 2) => {
+    const f0 = await g(() => window.__GAME__.frames());
+    await page.waitForFunction((f) => window.__GAME__.frames() >= f, f0 + n, { timeout: 10000 });
+  };
+  check((await g(() => window.__GAME__.view())) === "third", `[${label}] third-person view by default`);
+  await g(({ x, y, yaw }) => window.__GAME__.teleport(x, y, yaw), start);
+  await frames();
+  const cam = await g(() => ({ c: window.__GAME__.camera(), p: window.__GAME__.player() }));
+  const camBack = Math.hypot(cam.c.x - cam.p.x, cam.c.y - cam.p.y);
+  check(
+    camBack > 1.5 && camBack < 5 && cam.c.z > 1.6 && cam.c.z < 3,
+    `[${label}] camera sits behind and above the player (${camBack.toFixed(1)} m back, ${cam.c.z.toFixed(1)} m up)`,
+  );
+  // the scooter starts parked near the start, on the road, not inside anything
+  const parked = await g(() => window.__GAME__.scooter());
+  check(
+    Math.hypot(parked.x - start.x, parked.y - start.y) < 6 &&
+      (await g(({ x, y }) => window.__GAME__.roadAt(x, y), parked)) !== null &&
+      !(await g(({ x, y }) => window.__GAME__.blocked(x, y, 0.6), parked)),
+    `[${label}] scooter parked on the lane near the start`,
+  );
+  check(
+    parked.speed === 0 && !(await g(() => window.__GAME__.riding())),
+    `[${label}] scooter parked, on foot`,
+  );
+
+  // riding physics on open ground (real-world numbers for a 110 cc step-through, capped at 45 km/h in the colony)
+  const sim = await g(() => {
+    const s = window.__GAME__.rideSim;
+    return {
+      accel3: s(3, 1, 0).kmh,
+      top: s(20, 1, 0).kmh,
+      brake: s(4, -1, 0, 45).stoppedAfter,
+      coast: s(3, 0, 0, 45).kmh,
+      standstillTurn: s(1, 0, 1).heading,
+      turn: s(2, 0.6, 1, 30).heading,
+      reverse: s(5, -1, 0).kmh,
+    };
+  });
+  check(
+    sim.accel3 > 24 && sim.accel3 < 33,
+    `[${label}] full throttle reaches ${sim.accel3.toFixed(0)} km/h in 3 s`,
+  );
+  check(sim.top > 44 && sim.top <= 45.01, `[${label}] top speed ${sim.top.toFixed(1)} km/h (colony cap 45)`);
+  check(
+    sim.brake > 1 && sim.brake < 3,
+    `[${label}] brakes from 45 km/h to a stop in ${sim.brake?.toFixed(2)} s`,
+  );
+  check(
+    sim.coast > 30 && sim.coast < 45,
+    `[${label}] coasting slows gently (${sim.coast.toFixed(0)} km/h after 3 s)`,
+  );
+  check(Math.abs(sim.standstillTurn) < 1e-9, `[${label}] can't steer-turn while standing still`);
+  check(
+    sim.turn > 1 && sim.turn < 5,
+    `[${label}] steering right turns right (${sim.turn.toFixed(2)} rad in 2 s)`,
+  );
+  check(
+    sim.reverse < 0 && sim.reverse > -5.5,
+    `[${label}] reversing is a slow push (${sim.reverse.toFixed(1)} km/h)`,
+  );
+
+  // getting on: put the scooter 1.5 m ahead of the player; the prompt / Ride button appears
+  await g(({ x, y, yaw }) => {
+    window.__GAME__.placeScooter(x + Math.sin(yaw) * 1.5, y + Math.cos(yaw) * 1.5, yaw);
+  }, start);
+  await frames();
+  const promptText = await page.textContent("#prompt");
+  check(
+    (await page.isVisible("#prompt")) && /scooter/i.test(promptText),
+    `[${label}] near the scooter, a prompt says how to ride: "${promptText}"`,
+  );
+  if (label === "desktop") {
+    await page.keyboard.press("KeyE");
+  } else {
+    check(await page.isVisible("#btnRide"), `[${label}] Ride button shown near the scooter`);
+    await page.tap("#btnRide");
+  }
+  const rode = await page
+    .waitForFunction(() => window.__GAME__.riding(), null, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  check(rode, `[${label}] ${label === "desktop" ? "E" : "Ride button"} gets you on the scooter`);
+  await frames();
+  check(await page.isVisible("#speedo"), `[${label}] speedometer shown while riding`);
+  if (label === "phone") {
+    check(
+      (await page.isVisible("#btnHorn")) && !(await page.isVisible("#btnJump")),
+      `[${label}] Horn button replaces Jump while riding`,
+    );
+    check((await page.textContent("#btnRide")) === "Get off", `[${label}] Ride button becomes "Get off"`);
+  }
+  const ride = await g(() => {
+    const w = window.__GAME__;
+    const a = w.scooter();
+    w.step(2, { forward: 1, strafe: 0, run: false });
+    const b = w.scooter();
+    const p = w.player();
+    return { moved: Math.hypot(b.x - a.x, b.y - a.y), kmh: b.kmh, follows: Math.hypot(p.x - b.x, p.y - b.y) };
+  });
+  check(
+    ride.moved > 3 && ride.moved < 12 && ride.follows < 1e-6,
+    `[${label}] riding 2 s on throttle moves ${ride.moved.toFixed(1)} m, rider stays on it`,
+  );
+  await frames();
+  check(
+    /km\/h/.test(await page.textContent("#speedo")),
+    `[${label}] speedometer reads "${await page.textContent("#speedo")}"`,
+  );
+  await page.screenshot({ path: path.join(outDir, `game_${label}_riding.png`) });
+
+  // horn: once per press, only while riding
+  const honks0 = await g(() => window.__GAME__.honks());
+  if (label === "desktop") await page.keyboard.press("KeyH");
+  else await page.tap("#btnHorn");
+  const honked = await page
+    .waitForFunction((n) => window.__GAME__.honks() === n + 1, honks0, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  check(honked, `[${label}] ${label === "desktop" ? "H" : "Horn button"} sounds the horn once`);
+
+  // can't jump off at speed; can after slowing down, and the scooter stays where it was left
+  const off = await g(({ x, y, yaw }) => {
+    const w = window.__GAME__;
+    // back to the start of the lane (the live game kept coasting), then speed up a little
+    w.placeScooter(x, y, yaw);
+    w.step(1.5, { forward: 1, strafe: 0, run: false });
+    const fast = w.scooter().kmh;
+    w.step(1 / 30, { forward: 0, strafe: 0, run: false, use: true });
+    const stillOn = w.riding();
+    w.step(3, { forward: -1, strafe: 0, run: false });
+    w.step(1 / 30, { forward: 0, strafe: 0, run: false, use: true });
+    const s = w.scooter();
+    const p = w.player();
+    const offNow = !w.riding();
+    const gap = Math.hypot(p.x - s.x, p.y - s.y);
+    const inside = w.blocked(p.x, p.y);
+    const honksOnFoot = w.honks();
+    w.step(2, { forward: 1, strafe: 0, run: false, horn: true }); // walk away; horn does nothing on foot
+    const s2 = w.scooter();
+    return {
+      fast,
+      stillOn,
+      offNow,
+      gap,
+      inside,
+      stays: Math.hypot(s2.x - s.x, s2.y - s.y) < 1e-6 && Math.abs(s2.speed) < 1e-6,
+      hornOnFoot: w.honks() - honksOnFoot,
+    };
+  }, start);
+  check(off.stillOn, `[${label}] can't get off at ${off.fast.toFixed(0)} km/h ("slow down")`);
+  check(
+    off.offNow && off.gap > 0.5 && off.gap < 1.6 && !off.inside,
+    `[${label}] after braking you get off beside the scooter (${off.gap.toFixed(2)} m away, not in a wall)`,
+  );
+  check(off.stays, `[${label}] the scooter stays parked where you left it`);
+  check(off.hornOnFoot === 0, `[${label}] no horn on foot`);
+
+  // riding head-on into a wall stops at it, never inside it
+  const crash = await g(() => {
+    const w = window.__GAME__;
+    const p = w.player();
+    for (let maxDist = 40; maxDist <= 240; maxDist += 40) {
+      for (let tries = 0; tries < 6; tries++) {
+        const e = w.wallNear(p.x + tries * 30, p.y - tries * 20, 10, maxDist);
+        if (!e) continue;
+        const mx = (e.a[0] + e.b[0]) / 2,
+          my = (e.a[1] + e.b[1]) / 2;
+        const len = Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
+        const nx = -(e.b[1] - e.a[1]) / len,
+          ny = (e.b[0] - e.a[0]) / len;
+        for (const side of [1, -1]) {
+          // need 12 m of open ground in front of the wall
+          let clear = true;
+          for (let d = 1.5; d <= 13; d += 0.5)
+            if (w.blocked(mx + side * nx * d, my + side * ny * d, 0.7)) clear = false;
+          if (!clear) continue;
+          const sx = mx + side * nx * 12,
+            sy = my + side * ny * 12;
+          const yaw = Math.atan2(-side * nx, -side * ny);
+          w.placeScooter(sx, sy, yaw);
+          w.teleport(sx - Math.sin(yaw) * 1, sy - Math.cos(yaw) * 1, yaw);
+          w.step(1 / 30, { forward: 0, strafe: 0, run: false, use: true });
+          if (!w.riding()) return { found: false, why: "could not get on" };
+          let everInside = false;
+          let peak = 0;
+          for (let i = 0; i < 80; i++) {
+            w.step(0.1, { forward: 1, strafe: 0, run: false });
+            const s = w.scooter();
+            peak = Math.max(peak, s.kmh);
+            if (w.blocked(s.x, s.y, 0.3)) everInside = true;
+          }
+          const s = w.scooter();
+          const towards = (s.x - sx) * Math.sin(yaw) + (s.y - sy) * Math.cos(yaw);
+          const cam = w.camera();
+          return { found: true, everInside, towards, peak, camInside: w.blocked(cam.x, cam.y, 0.05) };
+        }
+      }
+    }
+    return { found: false };
+  });
+  check(
+    crash.found && !crash.everInside && crash.towards > 10 && crash.towards < 12,
+    `[${label}] riding at a wall 12 m away stops at it (${crash.towards?.toFixed(2)} m, peak ${crash.peak?.toFixed(0)} km/h, never inside)`,
+  );
+
+  // camera never goes inside a building: stand with your back to a wall
+  const backToWall = await g(() => {
+    const w = window.__GAME__;
+    if (w.riding()) {
+      w.step(4, { forward: -1, strafe: 0, run: false });
+      w.step(1 / 30, { forward: 0, strafe: 0, run: false, use: true });
+    }
+    const p = w.player();
+    const e = w.wallNear(p.x, p.y, 8, 120);
+    if (!e) return { found: false };
+    const mx = (e.a[0] + e.b[0]) / 2,
+      my = (e.a[1] + e.b[1]) / 2;
+    const len = Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
+    const nx = -(e.b[1] - e.a[1]) / len,
+      ny = (e.b[0] - e.a[0]) / len;
+    for (const side of [1, -1]) {
+      const sx = mx + side * nx * 1,
+        sy = my + side * ny * 1;
+      if (w.blocked(sx, sy)) continue;
+      w.teleport(sx, sy, Math.atan2(side * nx, side * ny)); // facing away from the wall
+      return { found: true, onFoot: !w.riding() };
+    }
+    return { found: false };
+  });
+  await frames();
+  const camWall = await g(() => {
+    const c = window.__GAME__.camera();
+    return { inside: window.__GAME__.blocked(c.x, c.y, 0.05) };
+  });
+  check(
+    backToWall.found && backToWall.onFoot && !camWall.inside,
+    `[${label}] with your back to a wall the camera stays out of the building`,
+  );
+
+  // V switches to first person (eye height) and back
+  await g(() => window.__GAME__.step(1 / 30, { forward: 0, strafe: 0, run: false, view: true }));
+  await frames();
+  const fp = await g(() => ({
+    v: window.__GAME__.view(),
+    c: window.__GAME__.camera(),
+    p: window.__GAME__.player(),
+  }));
+  check(
+    fp.v === "first" && Math.hypot(fp.c.x - fp.p.x, fp.c.y - fp.p.y) < 0.01 && Math.abs(fp.c.z - 1.6) < 0.05,
+    `[${label}] V switches to first person at eye height (${fp.c.z.toFixed(2)} m)`,
+  );
+  await g(() => window.__GAME__.step(1 / 30, { forward: 0, strafe: 0, run: false, view: true }));
+  check((await g(() => window.__GAME__.view())) === "third", `[${label}] V switches back to third person`);
+  const rideStats = await g(() => window.__GAME__.stats());
+  check(
+    rideStats.drawCalls <= MAX_DRAW_CALLS,
+    `[${label}] with player and scooter drawn, draw calls ${rideStats.drawCalls} within budget`,
+  );
+  check(
+    errors.length === 0,
+    `[${label}] still no console errors ${errors.length ? JSON.stringify(errors) : ""}`,
+  );
 
   // quality switch: High has sun shadows, Low turns them off (and stays within budget)
   const q0 = await page.evaluate(() => window.__GAME__.quality());

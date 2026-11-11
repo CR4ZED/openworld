@@ -96,11 +96,11 @@ export function makeCollider(w: World) {
     return best;
   };
 
-  const blocked = (x: number, y: number) =>
-    Math.hypot(x, y) > w.meta.radius_m || inside(x, y) || nearEdge(x, y, PLAYER_RADIUS);
+  const blocked = (x: number, y: number, r = PLAYER_RADIUS) =>
+    Math.hypot(x, y) > w.meta.radius_m || inside(x, y) || nearEdge(x, y, r);
 
   /** Move from (x, y) by (dx, dy); slides along walls. Returns the new position. */
-  const move = (x: number, y: number, dx: number, dy: number): Pt => {
+  const move = (x: number, y: number, dx: number, dy: number, r = PLAYER_RADIUS): Pt => {
     // small sub-steps so fast movement can't tunnel through thin walls
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 0.2));
     let px = x,
@@ -108,13 +108,13 @@ export function makeCollider(w: World) {
     for (let s = 0; s < steps; s++) {
       const sx = dx / steps,
         sy = dy / steps;
-      if (!blocked(px + sx, py + sy)) {
+      if (!blocked(px + sx, py + sy, r)) {
         px += sx;
         py += sy;
         continue;
       }
       // slide along the wall we hit: keep only the part of the step parallel to that wall
-      const e = nearestEdge(px + sx, py + sy, PLAYER_RADIUS + 0.5);
+      const e = nearestEdge(px + sx, py + sy, r + 0.5);
       if (!e) break;
       const ex = e.b[0] - e.a[0],
         ey = e.b[1] - e.a[1];
@@ -122,7 +122,7 @@ export function makeCollider(w: World) {
       const along = (sx * ex + sy * ey) / len;
       const tx = (ex / len) * along,
         ty = (ey / len) * along;
-      if (Math.hypot(tx, ty) > 1e-4 && !blocked(px + tx, py + ty)) {
+      if (Math.hypot(tx, ty) > 1e-4 && !blocked(px + tx, py + ty, r)) {
         px += tx;
         py += ty;
       } else break;

@@ -51,6 +51,12 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
   it; drag is only a fallback. Overlays on the view (crosshair) must have pointer-events: none.
 - Jump (owner, 2026-10-31): Space on desktop, Jump button on phones. Human-scale: 3.0 m/s take-off, g = 9.81
   (about 0.46 m high, ~0.6 s in the air); only from the ground; one jump per press.
+- Player and scooter (2026-11-11, Benglooru-style roadmap step 1): third-person camera by default (pulls in so it
+  never enters a building), V = first person. Generic step-through scooter (no real brand), parked on the start
+  lane: E / Ride button gets on and off (only below 2 m/s), W/S throttle-brake, A/D steer, H / Horn button.
+  Real-world riding numbers, capped at 45 km/h for colony lanes; cannot ride through buildings. Models are merged
+  per rigid part with one vertex-colour material (character 5 draw calls, scooter 3). Riding physics are tested on
+  open ground via `__GAME__.rideSim`; live checks wait for real frames (`__GAME__.frames()`), not fixed timeouts.
 - Phones play in landscape (owner, 2026-10-30). Android: Play button -> fullscreen + orientation lock. iPhone Safari
   cannot lock orientation, so portrait shows a full-screen "turn your phone sideways" prompt and the world waits.
   Tests run the phone in landscape and check the portrait prompt.
@@ -79,6 +85,10 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Survey fields are defined once in `data/survey/street_survey_schema.json`, shared by the form and the importer.
 
 ## Lessons learned
+
+- 2026-11-11: the desktop test browser can draw under 5 fps, so a 200 ms wait sometimes saw an old frame (stale
+  camera/prompt). Wait for frames drawn (`__GAME__.frames()`) instead. Also the help line ran under the map credits
+  on a 1000 px window; the game test now checks they don't overlap at 1280 and 1000 px.
 
 - 2026-10-31: repair patches painted into the 6 m tar texture repeated like a ladder down the ADB Road. Caught by
   looking at the render; textures now hold only uniform detail.
