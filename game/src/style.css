@@ -386,3 +386,112 @@ body.touch #minimap {
   width: 112px;
   height: 112px;
 }
+
+/* pause menu and title screen */
+#hud #btnMenu {
+  font-weight: 600;
+}
+#menu,
+#title {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 23, 27, 0.55);
+  /* (no backdrop blur: costly on budget phones) */
+  padding: 12px;
+  overflow-y: auto;
+}
+#menu[hidden],
+#title[hidden] {
+  display: none;
+}
+#menu .panel {
+  background: #fff;
+  border-radius: 14px;
+  padding: 18px 20px;
+  width: min(420px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+#menu h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+#menu .row {
+  display: flex;
+  gap: 10px;
+}
+#menu .row > * {
+  flex: 1;
+}
+#menu button,
+#menu .button,
+#title button,
+#title .button {
+  font: inherit;
+  font-size: 15px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #d9d3c4;
+  background: #fff;
+  color: #1f2328;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+#menu button[aria-pressed="true"] {
+  background: #92400e;
+  border-color: #92400e;
+  color: #fff;
+}
+#menu .primary,
+#title .primary {
+  background: #15803d;
+  border-color: #15803d;
+  color: #fff;
+  font-weight: 700;
+}
+#menu .danger {
+  color: #b91c1c;
+}
+#menu details {
+  font-size: 13px;
+  color: #374151;
+}
+#menu details ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+#title {
+  flex-direction: column;
+  gap: 12px;
+  color: #fff;
+  background: #1f2328;
+}
+#title h1 {
+  margin: 0;
+  font-size: 34px;
+}
+#title p {
+  margin: 0 0 8px;
+  color: #c7ccd3;
+}
+/* phones in landscape: shorter menu */
+@media (orientation: landscape) and (max-height: 500px) {
+  #menu .panel {
+    padding: 12px 16px;
+    gap: 8px;
+  }
+  #menu details {
+    display: none;
+  }
+}

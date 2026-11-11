@@ -357,20 +357,37 @@ for (const [label, opts] of [
       check(!clash, `[${label}] help text clear of the credits at ${width} px wide`);
     }
     await page.setViewportSize(opts.viewport);
-    // mouse-look: click captures the mouse, moving it turns the view without dragging, Esc releases it
-    await page.mouse.click(640, 400);
-    await page.waitForTimeout(150);
+    // mouse look without clicking (owner 2026-11-11: "having to click and then move around feels like a turn
+    // off"): moving the mouse over the view turns it straight away; the first key press captures the mouse
+    // (browsers only allow that after a key press or click); Esc frees it and opens the pause menu.
+    // Headless Chrome reports movementX/Y as 0 for real mouse moves, so the tests send the same events directly.
     check(
-      await page.evaluate(() => window.__GAME__.mouseLocked()),
-      `[${label}] clicking the view captures the mouse`,
+      !(await page.evaluate(() => window.__GAME__.mouseLocked())),
+      `[${label}] mouse not captured at start`,
     );
+    const hover0 = await page.evaluate(() => window.__GAME__.look());
+    await page.evaluate(() => {
+      const c = document.getElementById("scene");
+      for (let i = 0; i < 10; i++)
+        c.dispatchEvent(new MouseEvent("mousemove", { movementX: 20, movementY: 0, bubbles: true }));
+    });
+    const hover1 = await page.evaluate(() => window.__GAME__.look());
+    check(
+      hover1.yaw - hover0.yaw > 0.4,
+      `[${label}] moving the mouse over the view turns it with no click (yaw +${(hover1.yaw - hover0.yaw).toFixed(2)} rad)`,
+    );
+    await page.keyboard.press("KeyW");
+    const captured = await page
+      .waitForFunction(() => window.__GAME__.mouseLocked(), null, { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    check(captured, `[${label}] the first key press captures the mouse (no click needed)`);
     check(await page.isVisible("#crosshair"), `[${label}] crosshair shown while looking with the mouse`);
     check(
       (await page.evaluate(() => getComputedStyle(document.getElementById("crosshair")).pointerEvents)) ===
         "none",
       `[${label}] crosshair never blocks clicks on the view`,
     );
-    // a real mouse reports movementX/Y while captured; headless Chrome reports 0, so send the same events
     const before = await page.evaluate(() => window.__GAME__.look());
     await page.evaluate(() => {
       for (let i = 0; i < 10; i++)
@@ -379,7 +396,7 @@ for (const [label, opts] of [
     const after = await page.evaluate(() => window.__GAME__.look());
     check(
       after.yaw - before.yaw > 0.4 && Math.abs(after.pitch - before.pitch) < 1e-6,
-      `[${label}] moving the mouse right (no button held) turns right (yaw +${(after.yaw - before.yaw).toFixed(2)} rad)`,
+      `[${label}] moving the captured mouse right turns right (yaw +${(after.yaw - before.yaw).toFixed(2)} rad)`,
     );
     await page.evaluate(() => {
       for (let i = 0; i < 10; i++)
@@ -389,20 +406,54 @@ for (const [label, opts] of [
       (await page.evaluate(() => window.__GAME__.look())).pitch > after.pitch,
       `[${label}] moving the mouse up looks up`,
     );
-    // Esc is handled by the browser itself: it releases the capture, like this
+    // Esc while captured: the browser itself frees the mouse (exactly like this); that opens the pause menu
     await page.evaluate(() => document.exitPointerLock());
-    await page.waitForTimeout(150);
+    const menuOpened = await page
+      .waitForFunction(() => window.__GAME__.menuOpen(), null, { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    check(menuOpened && (await page.isVisible("#menu")), `[${label}] Esc opens the pause menu`);
+    check(!(await page.isVisible("#crosshair")), `[${label}] crosshair hidden while the menu is open`);
+    // the world waits: holding W moves nothing, mouse movement doesn't turn the view
+    const paused0 = await page.evaluate(() => ({ p: window.__GAME__.player(), f: window.__GAME__.frames() }));
+    await page.keyboard.down("KeyW");
+    await page.evaluate(() => {
+      const c = document.getElementById("scene");
+      c.dispatchEvent(new MouseEvent("mousemove", { movementX: 200, bubbles: true }));
+    });
+    await page.waitForFunction((f) => window.__GAME__.frames() > f + 3, paused0.f, { timeout: 10000 });
+    await page.keyboard.up("KeyW");
+    const paused1 = await page.evaluate(() => window.__GAME__.player());
     check(
-      !(await page.evaluate(() => window.__GAME__.mouseLocked())),
-      `[${label}] releasing the mouse (Esc) works`,
+      paused1.x === paused0.p.x && paused1.y === paused0.p.y && paused1.yaw === paused0.p.yaw,
+      `[${label}] while paused nothing moves (frames still drawn behind the menu)`,
     );
-    check(!(await page.isVisible("#crosshair")), `[${label}] crosshair hidden after the mouse is freed`);
-    const yawFree = (await page.evaluate(() => window.__GAME__.look())).yaw;
-    await page.evaluate(() => document.dispatchEvent(new MouseEvent("mousemove", { movementX: 200 })));
+    for (const id of ["#btnResume", "#btnQuality", "#btnEstimates", "#lnkMap", "#btnQuit"])
+      check(await page.isVisible(id), `[${label}] menu has ${id.slice(1)}`);
+    await page.click("#btnResume");
     check(
-      (await page.evaluate(() => window.__GAME__.look())).yaw === yawFree,
-      `[${label}] a free mouse doesn't turn the view`,
+      !(await page.isVisible("#menu")) && !(await page.evaluate(() => window.__GAME__.paused())),
+      `[${label}] Resume closes the menu and the game carries on`,
     );
+    // Esc when the mouse isn't captured also opens and closes the menu
+    await page.evaluate(() => document.exitPointerLock()); // (if Resume re-captured it, this opens the menu)
+    await page.waitForTimeout(100);
+    if (await page.evaluate(() => window.__GAME__.menuOpen())) await page.click("#btnResume");
+    await page.evaluate(() => document.exitPointerLock());
+    await page.waitForTimeout(100);
+    if (await page.evaluate(() => window.__GAME__.menuOpen())) {
+      await page.keyboard.press("Escape");
+    } else {
+      await page.keyboard.press("Escape");
+      check(await page.isVisible("#menu"), `[${label}] Esc opens the menu when the mouse is free`);
+      await page.keyboard.press("Escape");
+    }
+    check(!(await page.isVisible("#menu")), `[${label}] Esc again closes the menu`);
+    // Headless test browsers balloon in memory while the mouse stays captured (seen: 3 GB, then killed), so
+    // from here on the tests don't capture it. Real Chrome is checked by hand (see PR).
+    await page.evaluate(() => window.__GAME__.stopMouseCapture());
+    await page.waitForTimeout(100);
+    if (await page.evaluate(() => window.__GAME__.menuOpen())) await page.keyboard.press("Escape");
   }
 
   // jumping: a normal standing jump (~0.46 m), lands in about 0.6 s, no jumping again in mid-air
@@ -441,6 +492,10 @@ for (const [label, opts] of [
     const jumpsHeld = (await page.evaluate(() => window.__GAME__.jumps())) - jumpsBefore;
     check(up, `[${label}] Space jumps (player leaves the ground)`);
     check(jumpsHeld === 1, `[${label}] holding Space for 2 s gives exactly one jump (got ${jumpsHeld})`);
+    check(
+      !(await page.evaluate(() => window.__GAME__.menuOpen())),
+      `[${label}] Space after using the menu jumps; it doesn't press the menu button again`,
+    );
   } else {
     const box = (sel) =>
       page.evaluate((s) => document.querySelector(s).getBoundingClientRect().toJSON(), sel);
@@ -982,7 +1037,11 @@ for (const [label, opts] of [
     `[${label}] still no console errors ${errors.length ? JSON.stringify(errors) : ""}`,
   );
 
-  // quality switch: High has sun shadows, Low turns them off (and stays within budget)
+  // quality switch (in the menu): High has sun shadows, Low turns them off (and stays within budget)
+  await page.evaluate(() => document.exitPointerLock());
+  await page.waitForTimeout(100);
+  if (!(await page.evaluate(() => window.__GAME__.menuOpen()))) await page.click("#btnMenu");
+  check(await page.isVisible("#menu"), `[${label}] the ☰ Menu button opens the menu`);
   const q0 = await page.evaluate(() => window.__GAME__.quality());
   if (q0.quality === "low") await page.click("#btnQuality");
   const qHigh = await page.evaluate(() => window.__GAME__.quality());
@@ -1002,17 +1061,57 @@ for (const [label, opts] of [
   await page.click("#btnQuality"); // back to High for the remaining screenshots
 
   // estimates toggle tints estimated roads and is reversible
+  if (label === "phone") {
+    // the menu fits a phone held sideways, with buttons big enough for a thumb
+    const fit = await page.evaluate(() => {
+      const panel = document.querySelector("#menu .panel").getBoundingClientRect();
+      const sizes = [...document.querySelectorAll("#menu button, #menu .button")]
+        .filter((e) => e.offsetParent)
+        .map((e) => e.getBoundingClientRect().height);
+      return { inside: panel.top >= 0 && panel.bottom <= innerHeight, smallest: Math.min(...sizes) };
+    });
+    check(
+      fit.inside && fit.smallest >= 44,
+      `[${label}] menu fits the screen, buttons at least 44 px (${fit.smallest} px)`,
+    );
+  }
+  await page.screenshot({ path: path.join(outDir, `game_${label}_menu.png`) });
   await page.click("#btnEstimates");
   check(
     (await page.getAttribute("#btnEstimates", "aria-pressed")) === "true",
     `[${label}] "Show estimates" turns on`,
   );
+  await page.click("#btnResume");
   await page.screenshot({ path: path.join(outDir, `game_${label}_estimates.png`) });
+  await page.evaluate(() => document.exitPointerLock());
+  await page.waitForTimeout(100);
+  if (!(await page.evaluate(() => window.__GAME__.menuOpen()))) await page.click("#btnMenu");
   await page.click("#btnEstimates");
   check(
     (await page.getAttribute("#btnEstimates", "aria-pressed")) === "false",
     `[${label}] "Show estimates" turns off`,
   );
+
+  // Quit: a title screen, nothing runs behind it; Play starts again
+  await page.click("#btnQuit");
+  const fq = await page.evaluate(() => window.__GAME__.frames());
+  await page.waitForTimeout(600);
+  check(
+    (await page.isVisible("#title")) && (await page.evaluate(() => window.__GAME__.frames())) === fq,
+    `[${label}] Quit shows the title screen and stops the game`,
+  );
+  await page.click("#btnPlayAgain");
+  const replayed = await page
+    .waitForFunction((f) => window.__GAME__.frames() > f + 2, fq, { timeout: 10000 })
+    .then(() => true)
+    .catch(() => false);
+  check(
+    replayed && !(await page.isVisible("#title")) && !(await page.evaluate(() => window.__GAME__.paused())),
+    `[${label}] Play on the title screen starts the game again`,
+  );
+  await page.evaluate(() => document.exitPointerLock());
+  await page.waitForTimeout(100);
+  if (await page.evaluate(() => window.__GAME__.menuOpen())) await page.click("#btnResume");
 
   // overview shot from above the colony for human review
   await page.evaluate(() => window.__GAME__.teleport(150, -150, -0.8));
