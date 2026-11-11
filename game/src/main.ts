@@ -101,7 +101,52 @@ async function main() {
   let message = ""; // short notice ("Slow down to get off")
   let messageUntil = 0;
 
-  const controls = makeControls(canvas, look);
+  // pause menu (Esc / ☰ Menu) and title screen (Quit). While either is open the world waits.
+  let paused = false;
+  const menuEl = document.getElementById("menu")!;
+  const titleEl = document.getElementById("title")!;
+  const controls = makeControls(canvas, look, {
+    onEscape: () => {
+      if (!titleEl.hidden) return;
+      if (menuEl.hidden) openMenu();
+      else resume();
+    },
+    paused: () => paused,
+  });
+  const openMenu = () => {
+    paused = true;
+    menuEl.hidden = false;
+    controls.clear();
+    controls.unlock();
+    document.getElementById("btnResume")!.focus();
+  };
+  /** Back to the game: keyboard focus leaves the menu's buttons, so Space jumps instead of pressing them again. */
+  const focusGame = () => (document.activeElement as HTMLElement | null)?.blur?.();
+  const resume = () => {
+    menuEl.hidden = true;
+    paused = false;
+    focusGame();
+    controls.lock(); // clicking Resume counts as a gesture, so the browser lets us capture the mouse again
+  };
+  const quit = () => {
+    menuEl.hidden = true;
+    titleEl.hidden = false;
+    paused = true;
+    controls.unlock();
+    renderer.setAnimationLoop(null); // nothing runs behind the title screen
+  };
+  const playAgain = () => {
+    titleEl.hidden = true;
+    paused = false;
+    focusGame();
+    clock.getDelta(); // don't count the time spent on the title screen
+    renderer.setAnimationLoop(frame);
+    controls.lock();
+  };
+  document.getElementById("btnMenu")!.addEventListener("click", openMenu);
+  document.getElementById("btnResume")!.addEventListener("click", resume);
+  document.getElementById("btnQuit")!.addEventListener("click", quit);
+  document.getElementById("btnPlayAgain")!.addEventListener("click", playAgain);
   let quality: Quality = defaultQuality(controls.isTouch);
   const qBtn = document.getElementById("btnQuality")!;
   const applyQuality = (q: Quality) => {
@@ -450,7 +495,8 @@ async function main() {
   const frame = () => {
     const dt = Math.min(clock.getDelta(), 0.1);
     // phones held upright show "turn sideways": the world waits until it is landscape
-    if (!document.body.classList.contains("portrait")) step(dt, controls.read());
+    const input = controls.read(); // always read, so key presses made while paused don't fire later
+    if (!paused && !document.body.classList.contains("portrait")) step(dt, input);
     syncModels();
     // first person: hide your own body (the camera is inside the head); seated eyes are lower than standing
     character.root.visible = view === "third";
@@ -706,6 +752,14 @@ async function main() {
     roadAt: (x: number, y: number) => roadAt(x, y)?.id ?? null,
     hud: () => where.textContent,
     mouseLocked: () => controls.locked(),
+    /** Tests only: stop capturing the mouse automatically and let it go (no pause menu). */
+    stopMouseCapture: () => {
+      controls.setAutoLock(false);
+      controls.unlock();
+    },
+    paused: () => paused,
+    menuOpen: () => !menuEl.hidden,
+    titleOpen: () => !titleEl.hidden,
     look: () => ({ yaw: look.yaw, pitch: look.pitch }),
     setLook: (yaw: number, pitch: number) => {
       look.yaw = yaw;

@@ -16,7 +16,14 @@ export interface Look {
   pitch: number; // radians, positive = looking up
 }
 
-export function makeControls(canvas: HTMLCanvasElement, look: Look) {
+export interface ControlHooks {
+  /** The player pressed Esc (or the browser released the mouse): open the pause menu. */
+  onEscape(): void;
+  /** True while a menu or title screen is open: no capturing the mouse, no looking around. */
+  paused(): boolean;
+}
+
+export function makeControls(canvas: HTMLCanvasElement, look: Look, hooks: ControlHooks) {
   const keys = new Set<string>();
   const stick = { x: 0, y: 0 };
   const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
@@ -32,6 +39,16 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
     KeyC: "walk",
   };
   addEventListener("keydown", (e) => {
+    if (e.code === "Escape") {
+      // with the mouse captured, the browser itself releases it on Esc (handled in pointerlockchange)
+      if (!locked()) hooks.onEscape();
+      return;
+    }
+    if (hooks.paused()) return;
+    // during play Space/Enter never "press" whatever page button last had focus (e.g. ☰ Menu)
+    if (e.code === "Space" || e.code === "Enter") e.preventDefault();
+    // the first key press captures the mouse, so looking around never needs a click (owner 2026-11-11)
+    if (!isTouch && !locked()) lock();
     keys.add(e.code);
     const action = KEY_ACTIONS[e.code];
     if (!action) return;
@@ -52,24 +69,49 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
   addEventListener("keyup", (e) => keys.delete(e.code));
   addEventListener("blur", () => keys.clear());
 
-  // Desktop: click the view once to capture the mouse (pointer lock); then moving the mouse turns your head.
-  // Esc releases the mouse. If pointer lock is unavailable, dragging still works as a fallback.
+  // Desktop (owner 2026-11-11: "having to click and then move around is a turn off"): moving the mouse over the
+  // view turns your head straight away. Browsers only let a page capture the mouse (pointer lock: no cursor, no
+  // screen edge) after a click or key press, so the first key press or click captures it. Esc frees the mouse and
+  // opens the pause menu.
   const MOUSE_SENSITIVITY = 0.0022; // radians per pixel of mouse movement
   const turn = (dx: number, dy: number, s: number) => {
     look.yaw += dx * s;
     look.pitch = Math.max(-1.2, Math.min(1.2, look.pitch - dy * s));
   };
   const locked = () => document.pointerLockElement === canvas;
-  if (!isTouch) {
-    canvas.addEventListener("click", () => {
-      if (locked() || !canvas.requestPointerLock) return;
-      // request() returns a promise in modern browsers; ignore refusals (fallback = drag)
+  let wasLocked = false;
+  let autoLock = true; // tests turn this off: headless test browsers misbehave while the mouse is captured
+  let releasing = false; // we let go of the mouse ourselves (no pause menu for that)
+  const lock = () => {
+    if (isTouch || locked() || hooks.paused() || !autoLock || !canvas.requestPointerLock) return;
+    try {
+      // returns a promise in modern browsers; a refusal (e.g. right after Esc) just leaves hover-look working
       const r = canvas.requestPointerLock() as unknown as Promise<void> | undefined;
       r?.catch?.(() => {});
+    } catch {
+      // not allowed right now
+    }
+  };
+  const unlock = () => {
+    if (!locked()) return;
+    releasing = true;
+    document.exitPointerLock();
+  };
+  if (!isTouch) {
+    canvas.addEventListener("click", lock);
+    document.addEventListener("pointerlockchange", () => {
+      const now = locked();
+      document.body.classList.toggle("locked", now);
+      // Esc while captured: the browser frees the mouse; that means "pause"
+      if (wasLocked && !now && !releasing) hooks.onEscape();
+      if (!now) releasing = false;
+      wasLocked = now;
     });
-    document.addEventListener("pointerlockchange", () => document.body.classList.toggle("locked", locked()));
     document.addEventListener("mousemove", (e) => {
+      if (hooks.paused()) return;
       if (locked()) turn(e.movementX, e.movementY, MOUSE_SENSITIVITY);
+      // not captured yet: the mouse moving over the view still turns it
+      else if (e.target === canvas && e.buttons === 0) turn(e.movementX, e.movementY, MOUSE_SENSITIVITY);
     });
   }
 
@@ -77,7 +119,7 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
   let lookPointer: number | null = null;
   let last: [number, number] = [0, 0];
   canvas.addEventListener("pointerdown", (e) => {
-    if (locked()) return;
+    if (locked() || e.pointerType === "mouse") return; // mice look by moving (above); fingers drag
     lookPointer = e.pointerId;
     last = [e.clientX, e.clientY];
     canvas.setPointerCapture(e.pointerId);
@@ -140,5 +182,17 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
       ...once,
     };
   };
-  return { read, isTouch, turn: (dx: number, dy: number) => turn(dx, dy, MOUSE_SENSITIVITY), locked };
+  return {
+    read,
+    isTouch,
+    turn: (dx: number, dy: number) => turn(dx, dy, MOUSE_SENSITIVITY),
+    locked,
+    lock,
+    unlock,
+    setAutoLock: (on: boolean) => {
+      autoLock = on;
+    },
+    /** Forget held keys (e.g. when the menu opens, so you don't keep walking afterwards). */
+    clear: () => keys.clear(),
+  };
 }

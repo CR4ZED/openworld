@@ -47,8 +47,13 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
   (u = metres along, v = across). Never paint distinct features (patches, potholes, signs) into a repeating texture:
   they show up as an obvious row; place them individually instead. Quality High = sun shadows following the player;
   Low = no shadows, pixel ratio 1; budget phones (<= 4 cores or <= 4 GB) start on Low.
-- Desktop look = mouse movement (owner, 2026-10-31): click the view to capture the mouse (pointer lock), Esc frees
-  it; drag is only a fallback. Overlays on the view (crosshair) must have pointer-events: none.
+- Desktop look = mouse movement, no click needed (owner 2026-10-31, updated 2026-11-11: "having to click and then
+  move around is a turn off"): moving the mouse over the view turns it at once; the first key press or click
+  captures the mouse (browsers allow pointer lock only after a gesture); Esc frees it and opens the pause menu.
+  Overlays on the view (crosshair, minimap) must have pointer-events: none.
+- Pause menu (Esc or ☰ Menu; phones use the button): Resume, Quality, Show estimates, 2D map, Quit (title screen,
+  game stopped; Play restarts), controls list. The world waits while it is open. Closing it hands keyboard focus
+  back to the game (Space must jump, never press a menu button). Settings live in the menu, not the top strip.
 - Jump (owner, 2026-10-31): Space on desktop, Jump button on phones. Human-scale: 3.0 m/s take-off, g = 9.81
   (about 0.46 m high, ~0.6 s in the air); only from the ground; one jump per press.
 - Player and scooter (2026-11-11, Benglooru-style roadmap step 1): third-person camera by default (pulls in so it
@@ -104,6 +109,12 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Survey fields are defined once in `data/survey/street_survey_schema.json`, shared by the form and the importer.
 
 ## Lessons learned
+
+- 2026-11-11: after closing the menu, keyboard focus stayed on its button, so Space pressed it again instead of
+  jumping; focus now returns to the game and Space/Enter never activate page buttons during play (test added).
+- 2026-11-11: headless test Chrome (swiftshader) balloons to 3 GB and crawls while the mouse is captured (pointer
+  lock), then gets killed. Tests check capturing/releasing, then switch automatic capture off
+  (`__GAME__.stopMouseCapture()`). Real Chrome memory with the mouse captured is checked by hand on the preview.
 
 - 2026-11-11: blending joint angles straight from sitting to kneeling swung a foot 0.4 m through the ground; added
   in-between poses (knees up, tuck, roll forward). The start of getting off drew the body at the scooter's centre

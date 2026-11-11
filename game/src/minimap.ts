@@ -195,9 +195,15 @@ export function makeMinimap(world: World, canvas: HTMLCanvasElement) {
   };
 
   /** Colour of the static map at a ground position (tests check roads/buildings land where the data says). */
+  const probe = document.createElement("canvas");
+  probe.width = probe.height = 1;
+  const pc = probe.getContext("2d", { willReadFrequently: true })!;
   const sample = (x: number, y: number) => {
     const [cx, cy] = px([x, y]);
-    const d = b.getImageData(Math.floor(cx), Math.floor(cy), 1, 1).data;
+    // copy one pixel into a tiny canvas and read that (reading the whole big map back is slow and heavy)
+    pc.clearRect(0, 0, 1, 1);
+    pc.drawImage(base, Math.floor(cx), Math.floor(cy), 1, 1, 0, 0, 1, 1);
+    const d = pc.getImageData(0, 0, 1, 1).data;
     return "#" + [d[0], d[1], d[2]].map((v) => v!.toString(16).padStart(2, "0")).join("");
   };
   return { draw, record, sample, trail, state, colours: { SURFACE_COLOUR, GROUND, BUILDING, RESTRICTED } };
