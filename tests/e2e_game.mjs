@@ -165,6 +165,11 @@ for (const [label, opts] of [
 
   // starts on the surveyed colony lane, HUD shows it
   const start = await page.evaluate(() => window.__GAME__.player());
+  // the first frames can have a zero time step: speed and gait phase must still be real numbers (once were NaN)
+  check(
+    Number.isFinite(start.speed) && Number.isFinite(start.phase),
+    `[${label}] movement state is valid after loading (speed ${start.speed}, phase ${start.phase})`,
+  );
   check(
     (await page.evaluate(({ x, y }) => window.__GAME__.roadAt(x, y), start)) === "road-545446015",
     `[${label}] player starts on the surveyed colony lane`,
@@ -175,14 +180,129 @@ for (const [label, opts] of [
     `[${label}] HUD shows the lane's surveyed width (no estimate tag): "${hud}"`,
   );
 
-  // walking forward along the road for 5 s moves about 7 m (walking pace 1.4 m/s)
+  // owner 2026-11-11: the 1.4 m/s stroll was far too slow. Forward = an easy jog (3.5 m/s) like other open-world
+  // games; C = walk (1.6), Shift = sprint (6.0). Real human paces, quick to start and stop.
   const moved = await page.evaluate(() => {
     const a = window.__GAME__.player();
-    window.__GAME__.step(5, { forward: 1, strafe: 0, run: false });
+    window.__GAME__.step(2, { forward: 1, strafe: 0, run: false });
     const b = window.__GAME__.player();
     return Math.hypot(b.x - a.x, b.y - a.y);
   });
-  check(moved > 6 && moved < 7.5, `[${label}] walking 5 s covers ${moved.toFixed(2)} m`);
+  check(
+    moved > 5.8 && moved < 7.2,
+    `[${label}] moving forward 2 s along the lane jogs ${moved.toFixed(2)} m`,
+  );
+  const pace = await page.evaluate(() => {
+    const g = window.__GAME__;
+    const F = { forward: 1, strafe: 0, run: false };
+    const none = { forward: 0, strafe: 0, run: false };
+    const jog = g.walkSim([[3, F]]);
+    const walk = g.walkSim([[3, F]], true);
+    const sprint = g.walkSim([[3, { ...F, run: true }]]);
+    const light = g.walkSim([[3, { forward: 0.4, strafe: 0, run: false }]]);
+    const stop = g.walkSim([
+      [2, F],
+      [0.4, none],
+    ]);
+    return {
+      jog: jog.speeds.at(-1),
+      jogAt03: jog.speeds[2],
+      walk: walk.speeds.at(-1),
+      sprint: sprint.speeds.at(-1),
+      light: light.speeds.at(-1),
+      stopped: stop.speeds.at(-1),
+      // steps per second once at pace (last 2 s)
+      cadence: {
+        walk: (g.walkSim([[3, F]], true).steps - g.walkSim([[1, F]], true).steps) / 2,
+        jog: (jog.steps - g.walkSim([[1, F]]).steps) / 2,
+        sprint: (sprint.steps - g.walkSim([[1, { ...F, run: true }]]).steps) / 2,
+      },
+    };
+  });
+  check(
+    Math.abs(pace.jog - 3.5) < 0.01,
+    `[${label}] default pace is an easy jog (${pace.jog.toFixed(2)} m/s)`,
+  );
+  check(Math.abs(pace.walk - 1.6) < 0.01, `[${label}] C walks at a brisk 1.6 m/s (${pace.walk.toFixed(2)})`);
+  check(Math.abs(pace.sprint - 6) < 0.01, `[${label}] Shift sprints at 6 m/s (${pace.sprint.toFixed(2)})`);
+  check(
+    pace.light > 0.5 && pace.light <= 1.6,
+    `[${label}] a light push on the joystick walks (${pace.light.toFixed(2)})`,
+  );
+  check(pace.jogAt03 > 2.9, `[${label}] up to speed quickly (${pace.jogAt03.toFixed(2)} m/s after 0.3 s)`);
+  check(pace.stopped === 0, `[${label}] stops within 0.4 s of letting go (no sliding)`);
+  check(
+    pace.cadence.walk > 1.6 &&
+      pace.cadence.walk < 2.1 &&
+      pace.cadence.jog > 2.3 &&
+      pace.cadence.jog < 2.9 &&
+      pace.cadence.sprint > 2.8 &&
+      pace.cadence.sprint < 3.6,
+    `[${label}] natural steps per second: walk ${pace.cadence.walk.toFixed(2)}, jog ${pace.cadence.jog.toFixed(2)}, sprint ${pace.cadence.sprint.toFixed(2)}`,
+  );
+
+  // a natural gait (owner: "walks like a robot"): feet stay planted while carrying weight, knees fold on the
+  // swinging leg, arms swing opposite the legs, and the legs stop when the body stops
+  for (const [mode, walk] of [
+    ["walking", true],
+    ["jogging", false],
+  ]) {
+    const gait = await page.evaluate(
+      ({ s, walk }) => {
+        const g = window.__GAME__;
+        g.teleport(s.x, s.y, s.yaw);
+        if (g.player().walkMode !== walk) g.step(1 / 30, { forward: 0, strafe: 0, run: false, walk: true });
+        const F = { forward: 1, strafe: 0, run: false };
+        g.step(walk ? 1 : 0.6, F); // get up to pace
+        const samples = [];
+        for (let i = 0; i < (walk ? 66 : 42); i++) {
+          g.step(1 / 30, F);
+          samples.push({ p: g.player(), j: g.joints() });
+        }
+        if (walk) g.step(1 / 30, { forward: 0, strafe: 0, run: false, walk: true }); // back to jogging
+        let plantedL = 0,
+          plantedR = 0,
+          moving = 0;
+        let minKnee = 0,
+          thighMin = 0,
+          thighMax = 0,
+          armLegProduct = 0;
+        for (let i = 1; i < samples.length; i++) {
+          const a = samples[i - 1],
+            b = samples[i];
+          const body = Math.hypot(b.p.x - a.p.x, b.p.y - a.p.y) * 30;
+          if (body < 0.5) continue;
+          moving++;
+          const f = (k) => Math.hypot(b.j[k].x - a.j[k].x, b.j[k].y - a.j[k].y) * 30;
+          if (f("footL") < 0.35 * body) plantedL++;
+          if (f("footR") < 0.35 * body) plantedR++;
+          minKnee = Math.min(minKnee, b.j.kneeL);
+          thighMin = Math.min(thighMin, b.j.thighL);
+          thighMax = Math.max(thighMax, b.j.thighL);
+          armLegProduct += b.j.armL * b.j.thighL;
+        }
+        return {
+          moving,
+          plantedL: plantedL / moving,
+          plantedR: plantedR / moving,
+          minKnee,
+          swing: thighMax - thighMin,
+          armOpposite: armLegProduct < 0,
+        };
+      },
+      { s: start, walk },
+    );
+    check(
+      gait.moving > 20 && gait.plantedL > 0.15 && gait.plantedR > 0.15,
+      `[${label}] ${mode}: each foot stays planted part of the stride, no skating (L ${(gait.plantedL * 100).toFixed(0)}%, R ${(gait.plantedR * 100).toFixed(0)}%)`,
+    );
+    check(
+      gait.swing > 0.5 && gait.minKnee < -0.6,
+      `[${label}] ${mode}: legs swing (${gait.swing.toFixed(2)} rad) and knees bend (${gait.minKnee.toFixed(2)} rad)`,
+    );
+    check(gait.armOpposite, `[${label}] ${mode}: arms swing opposite the legs`);
+  }
+  await page.evaluate(({ x, y, yaw }) => window.__GAME__.teleport(x, y, yaw), start);
 
   // walking head-on into a long building wall stops at the wall, never inside it
   const wall = await page.evaluate(() => {
@@ -367,27 +487,30 @@ for (const [label, opts] of [
     `[${label}] scooter parked, on foot`,
   );
 
-  // riding physics on open ground (real-world numbers for a 110 cc step-through, capped at 45 km/h in the colony)
+  // riding physics on open ground, against a real 110 cc scooter road test (Autocar India, Activa 110, 2025):
+  // 85 km/h top, 0-40 3.64 s, 0-60 8.13 s, 0-80 18.12 s, 60-0 in 18.43 m. (Owner: the 45 km/h cap was not true.)
   const sim = await g(() => {
     const s = window.__GAME__.rideSim;
+    const full = s(45, 1, 0);
     return {
-      accel3: s(3, 1, 0).kmh,
-      top: s(20, 1, 0).kmh,
-      brake: s(4, -1, 0, 45).stoppedAfter,
+      reach: full.reach,
+      top: full.kmh,
+      brake60: s(6, -1, 0, 60).stopDistance,
       coast: s(3, 0, 0, 45).kmh,
       standstillTurn: s(1, 0, 1).heading,
       turn: s(2, 0.6, 1, 30).heading,
       reverse: s(5, -1, 0).kmh,
     };
   });
+  const r = sim.reach;
   check(
-    sim.accel3 > 24 && sim.accel3 < 33,
-    `[${label}] full throttle reaches ${sim.accel3.toFixed(0)} km/h in 3 s`,
+    r[40] > 3 && r[40] < 5 && r[60] > 7 && r[60] < 9.5 && r[80] > 16 && r[80] < 20.5,
+    `[${label}] acceleration like the real scooter: 0-40 ${r[40]?.toFixed(1)} s, 0-60 ${r[60]?.toFixed(1)} s, 0-80 ${r[80]?.toFixed(1)} s`,
   );
-  check(sim.top > 44 && sim.top <= 45.01, `[${label}] top speed ${sim.top.toFixed(1)} km/h (colony cap 45)`);
+  check(sim.top > 83 && sim.top <= 85.01, `[${label}] top speed ${sim.top.toFixed(1)} km/h (real: 85)`);
   check(
-    sim.brake > 1 && sim.brake < 3,
-    `[${label}] brakes from 45 km/h to a stop in ${sim.brake?.toFixed(2)} s`,
+    sim.brake60 > 16.5 && sim.brake60 < 20.5,
+    `[${label}] brakes from 60 km/h in ${sim.brake60?.toFixed(1)} m (real: 18.4 m)`,
   );
   check(
     sim.coast > 30 && sim.coast < 45,
@@ -401,6 +524,37 @@ for (const [label, opts] of [
   check(
     sim.reverse < 0 && sim.reverse > -5.5,
     `[${label}] reversing is a slow push (${sim.reverse.toFixed(1)} km/h)`,
+  );
+
+  // hitting a wall (owner: "no physics, the speed drops to 0"): a test wall 2-3 m ahead, running east-west
+  const wallSim = await g(() => {
+    const s = window.__GAME__.rideSim;
+    // glancing: 40 km/h, 15 degrees towards the wall
+    const glance = s(3, 0.3, 0, 40, { y: 2, heading: Math.PI / 2 - 0.26 });
+    // gentle head-on bump at 10 km/h
+    const bump = s(2, 0, 0, 10, { y: 3, heading: 0 });
+    // hard head-on crash at 40 km/h
+    const crash = s(3, 0, 0, 40, { y: 3, heading: 0 });
+    return { glance, bump, crash };
+  });
+  const gl = wallSim.glance;
+  check(
+    gl.hits.length > 0 &&
+      !gl.fallen &&
+      gl.kmh > 25 &&
+      Math.abs(gl.heading - Math.PI / 2) < 0.15 &&
+      gl.maxY <= 1.4 + 1e-6,
+    `[${label}] glancing off a wall scrapes along it: keeps ${gl.kmh.toFixed(0)} km/h, turns parallel (${gl.heading.toFixed(2)} rad), never through`,
+  );
+  const bp = wallSim.bump;
+  check(
+    bp.hits.length > 0 && !bp.fallen && bp.y < bp.maxY - 0.1 && bp.maxY <= 2.4 + 1e-6,
+    `[${label}] a slow head-on bump bounces back ${(bp.maxY - bp.y).toFixed(2)} m, rider stays on`,
+  );
+  const cr = wallSim.crash;
+  check(
+    cr.fallen && cr.hits.some((h) => h.crashed) && cr.maxY <= 2.4 + 1e-6,
+    `[${label}] a hard head-on crash at 40 km/h knocks the scooter over (impact ${cr.hits[0]?.impact.toFixed(1)} m/s), never through`,
   );
 
   // getting on: put the scooter 1.5 m ahead of the player; the prompt / Ride button appears
@@ -439,6 +593,7 @@ for (const [label, opts] of [
     w.step(2, { forward: 1, strafe: 0, run: false });
     const b = w.scooter();
     const p = w.player();
+    w.step(1.5, { forward: -1, strafe: 0, run: false }); // brake: don't coast into a wall while the test reads the screen
     return { moved: Math.hypot(b.x - a.x, b.y - a.y), kmh: b.kmh, follows: Math.hypot(p.x - b.x, p.y - b.y) };
   });
   check(
@@ -499,7 +654,8 @@ for (const [label, opts] of [
   check(off.stays, `[${label}] the scooter stays parked where you left it`);
   check(off.hornOnFoot === 0, `[${label}] no horn on foot`);
 
-  // riding head-on into a wall stops at it, never inside it
+  // riding hard at a real building: the rider is thrown off, the scooter falls; nobody ends up inside the
+  // building; you get up after a moment and E picks the scooter back up
   const crash = await g(() => {
     const w = window.__GAME__;
     const p = w.player();
@@ -527,24 +683,62 @@ for (const [label, opts] of [
           if (!w.riding()) return { found: false, why: "could not get on" };
           let everInside = false;
           let peak = 0;
-          for (let i = 0; i < 80; i++) {
+          const crashes0 = w.crashes();
+          for (let i = 0; i < 80 && w.riding(); i++) {
             w.step(0.1, { forward: 1, strafe: 0, run: false });
             const s = w.scooter();
             peak = Math.max(peak, s.kmh);
             if (w.blocked(s.x, s.y, 0.3)) everInside = true;
           }
+          const thrown = !w.riding() && w.crashes() === crashes0 + 1;
+          const down = w.downFor() > 0;
+          // try to walk while lying on the ground: nothing happens
+          const p0 = w.player();
+          w.step(0.5, { forward: 1, strafe: 0, run: false });
+          const p1 = w.player();
+          const stuck = Math.hypot(p1.x - p0.x, p1.y - p0.y) < 0.05;
+          w.step(1.5, { forward: 0, strafe: 0, run: false }); // get up; the scooter slides to a stop
           const s = w.scooter();
-          const towards = (s.x - sx) * Math.sin(yaw) + (s.y - sy) * Math.cos(yaw);
-          const cam = w.camera();
-          return { found: true, everInside, towards, peak, camInside: w.blocked(cam.x, cam.y, 0.05) };
+          const p = w.player();
+          const riderInside = w.blocked(p.x, p.y);
+          const fallen = s.fallen;
+          const scooterInside = w.blocked(s.x, s.y, 0.3);
+          // walk to the scooter and pick it up
+          w.teleport(p.x, p.y, p.yaw);
+          const near = Math.hypot(p.x - s.x, p.y - s.y) <= 2.5;
+          w.step(1 / 30, { forward: 0, strafe: 0, run: false, use: true });
+          return {
+            found: true,
+            everInside,
+            peak,
+            thrown,
+            down,
+            stuck,
+            up: w.downFor() === 0,
+            fallen,
+            riderInside,
+            scooterInside,
+            near,
+            pickedUp: w.riding() && !w.scooter().fallen,
+          };
         }
       }
     }
     return { found: false };
   });
   check(
-    crash.found && !crash.everInside && crash.towards > 10 && crash.towards < 12,
-    `[${label}] riding at a wall 12 m away stops at it (${crash.towards?.toFixed(2)} m, peak ${crash.peak?.toFixed(0)} km/h, never inside)`,
+    crash.found &&
+      crash.thrown &&
+      crash.fallen &&
+      !crash.everInside &&
+      !crash.scooterInside &&
+      !crash.riderInside,
+    `[${label}] riding into a building at ${crash.peak?.toFixed(0)} km/h throws the rider off and knocks the scooter over (nobody inside the building)`,
+  );
+  check(crash.down && crash.stuck && crash.up, `[${label}] after a fall you lie down briefly, then get up`);
+  check(
+    crash.near && crash.pickedUp,
+    `[${label}] E next to the fallen scooter picks it up and you ride again`,
   );
 
   // camera never goes inside a building: stand with your back to a wall

@@ -130,6 +130,29 @@ export function makeCollider(w: World) {
     return [px, py];
   };
 
+  /**
+   * Direction pointing away from the wall closest to (x, y) within r metres (unit vector), or null in the open.
+   * Used for crash physics: what you hit decides how you bounce and slide.
+   */
+  const normal = (x: number, y: number, r: number): Pt | null => {
+    const e = nearestEdge(x, y, r);
+    if (e) {
+      const dx = e.b[0] - e.a[0],
+        dy = e.b[1] - e.a[1];
+      const t = Math.max(0, Math.min(1, ((x - e.a[0]) * dx + (y - e.a[1]) * dy) / (dx * dx + dy * dy || 1)));
+      const nx = x - (e.a[0] + t * dx),
+        ny = y - (e.a[1] + t * dy);
+      const d = Math.hypot(nx, ny);
+      if (d > 1e-6) return [nx / d, ny / d];
+      const len = Math.hypot(dx, dy) || 1;
+      return [-dy / len, dx / len];
+    }
+    // the edge of the map behaves like a wall too
+    const d = Math.hypot(x, y);
+    if (d > w.meta.radius_m - r) return [-x / d, -y / d];
+    return null;
+  };
+
   /** A building wall near (x, y) at least `minLen` m long, for tests. */
   const wallNear = (x: number, y: number, minLen: number, maxDist: number): Edge | null => {
     let best: Edge | null = null;
@@ -146,5 +169,5 @@ export function makeCollider(w: World) {
     return best;
   };
 
-  return { blocked, move, inside, wallNear };
+  return { blocked, move, inside, wallNear, normal };
 }

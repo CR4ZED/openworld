@@ -4,17 +4,14 @@ import { ON_FOOT, ON_SCOOTER, placeCamera, type View } from "./camera";
 import { makeCollider } from "./collision";
 import { makeControls, type Input, type Look } from "./controls";
 import { makeCharacter, makeScooter } from "./models";
+import { newWalker, PACE, walkStep, type Walker } from "./player";
 import { defaultQuality, saveQuality, type Quality } from "./quality";
 import { roadDrain, roadSurface, roadWidth } from "./resolve";
 import type { Pt, Road, World } from "./types";
-import { newScooter, rideStep, SCOOTER, type ScooterState } from "./scooter";
+import { liftScooter, newScooter, rideStep, SCOOTER, type Mover, type ScooterState } from "./scooter";
 import { honk, honkCount } from "./sound";
 import { buildWorld, makeRoadLocator, setEstimateTint } from "./world";
 
-const WALK_SPEED = 1.4; // m/s, typical walking pace
-const RUN_SPEED = 4.0;
-const GRAVITY = 9.81; // m/s²
-const JUMP_SPEED = 3.0; // m/s upwards: about 0.46 m high, a normal standing jump
 // Start on the colony lane the owner surveyed (road-545446015), facing along it.
 const START_ROAD = "road-545446015";
 const REACH = 2.5; // m: how close you must be to get on the scooter
@@ -61,7 +58,11 @@ async function main() {
   const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 1500);
   const look: Look = { yaw: 0, pitch: 0 };
   // z = height above ground, vz = vertical speed, facing = where the body points (third person)
-  const player = { x: 0, y: 0, z: 0, vz: 0, facing: 0, speed: 0 };
+  const player: Walker = newWalker(0, 0, 0);
+  let walkMode = false; // C: walk instead of jog
+  let downFor = 0; // seconds left lying on the ground after coming off the scooter
+  let shake = 0; // camera shake after a knock (m)
+  let crashes = 0; // for tests
   let jumps = 0; // jumps started (for tests)
   const start = world.roads.find((r) => r.id === START_ROAD) ?? world.roads[0]!;
   placeOnRoad(start, player, look);
@@ -130,14 +131,14 @@ async function main() {
 
   const getOn = () => {
     riding = true;
-    player.z = player.vz = 0;
+    player.z = player.vz = player.vx = player.vy = 0;
     scooterModel.seat.add(character.root);
     character.root.position.set(0, 0, 0);
     character.root.rotation.set(0, 0, 0);
     look.yaw = scooter.heading;
   };
-  const getOff = () => {
-    if (Math.abs(scooter.speed) > GET_OFF_SPEED) {
+  const getOff = (thrown?: [number, number]) => {
+    if (!thrown && Math.abs(scooter.speed) > GET_OFF_SPEED) {
       notify("Slow down to get off");
       return;
     }
@@ -145,6 +146,7 @@ async function main() {
     // step off to the left (kerb side in India), else the right, else behind
     const h = scooter.heading;
     const spots: [number, number][] = [
+      ...(thrown ? ([[thrown[0] * 1.3, thrown[1] * 1.3]] as [number, number][]) : []),
       [-Math.cos(h) * 0.9, Math.sin(h) * 0.9],
       [Math.cos(h) * 0.9, -Math.sin(h) * 0.9],
       [-Math.sin(h) * 1.4, -Math.cos(h) * 1.4],
@@ -154,20 +156,42 @@ async function main() {
     player.y = scooter.y + free[1];
     player.facing = h;
     riding = false;
+    player.vx = player.vy = player.speed = 0;
     scene.add(character.root);
+    if (thrown) {
+      downFor = 1.6;
+      notify("You came off! Press E to pick the scooter up");
+    }
   };
 
   /** Advance the game by dt seconds with the given input. */
   const step = (dt: number, input: Input) => {
     clockT += dt;
     if (input.view) view = view === "third" ? "first" : "third";
+    shake *= Math.exp(-dt * 6);
+    if (downFor > 0) {
+      // lying on the ground after a fall: no moving until you get back up
+      downFor = Math.max(0, downFor - dt);
+      walkStep(player, look.yaw, dt, { forward: 0, strafe: 0, run: false }, true, collider);
+      if (scooter.fallen) rideStep(scooter, dt, 0, 0, collider);
+      return;
+    }
     if (input.use) {
       if (riding) getOff();
-      else if (nearScooter()) getOn();
+      else if (nearScooter()) {
+        if (scooter.fallen) liftScooter(scooter);
+        getOn();
+      }
     }
     if (riding) {
       if (input.horn) honk();
-      rideStep(scooter, dt, input.forward, input.strafe, collider);
+      const hit = rideStep(scooter, dt, input.forward, input.strafe, collider);
+      if (hit.hit) shake = Math.max(shake, Math.min(0.35, hit.impact * 0.04));
+      if (hit.crashed) {
+        crashes++;
+        getOff(hit.normal ?? [0, 0]);
+        return;
+      }
       player.x = scooter.x;
       player.y = scooter.y;
       player.facing = scooter.heading;
@@ -177,38 +201,12 @@ async function main() {
       look.yaw += diff * Math.min(1, dt * 2.5);
       return;
     }
-    const speed = input.run ? RUN_SPEED : WALK_SPEED;
-    const fx = Math.sin(look.yaw),
-      fy = Math.cos(look.yaw); // forward in data coords (x east, y north)
-    const rx = Math.cos(look.yaw),
-      ry = -Math.sin(look.yaw); // right
-    let dx = fx * input.forward + rx * input.strafe;
-    let dy = fy * input.forward + ry * input.strafe;
-    const m = Math.hypot(dx, dy);
-    if (m > 1) {
-      dx /= m;
-      dy /= m;
+    if (input.walk) {
+      walkMode = !walkMode;
+      notify(walkMode ? "Walking (C to jog)" : "Jogging (C to walk)");
     }
-    const before = [player.x, player.y];
-    [player.x, player.y] = collider.move(player.x, player.y, dx * speed * dt, dy * speed * dt);
-    player.speed = Math.hypot(player.x - before[0]!, player.y - before[1]!) / dt;
-    // the body turns smoothly towards where you walk
-    if (m > 0.05) {
-      const want = Math.atan2(dx, dy);
-      const diff = Math.atan2(Math.sin(want - player.facing), Math.cos(want - player.facing));
-      player.facing += diff * Math.min(1, dt * 10);
-    }
-    // jumping: only from the ground (no double jumps); gravity brings you back down
-    const grounded = player.z <= 0;
-    if (input.jump && grounded) {
-      player.vz = JUMP_SPEED;
-      jumps++;
-    }
-    if (!grounded || player.vz > 0) {
-      player.vz -= GRAVITY * dt;
-      player.z = Math.max(0, player.z + player.vz * dt);
-      if (player.z === 0) player.vz = 0;
-    }
+    if (scooter.fallen) rideStep(scooter, dt, 0, 0, collider); // still sliding after a crash
+    if (walkStep(player, look.yaw, dt, input, walkMode, collider)) jumps++;
   };
 
   const promptEl = document.getElementById("prompt")!;
@@ -217,11 +215,13 @@ async function main() {
   const updateActions = () => {
     const body = document.body;
     body.classList.toggle("riding", riding);
-    const canRide = !riding && nearScooter();
+    const canRide = !riding && downFor === 0 && nearScooter();
     body.classList.toggle("near-scooter", canRide);
     rideBtn.textContent = riding ? "Get off" : "Ride";
     let text = "";
     if (clockT < messageUntil) text = message;
+    else if (canRide && scooter.fallen)
+      text = controls.isTouch ? "Tap Ride to pick the scooter up" : "Press E to pick the scooter up";
     else if (canRide)
       text = controls.isTouch ? "Tap Ride to get on the scooter" : "Press E to ride the scooter";
     else if (riding && !controls.isTouch) text = "W/S throttle · A/D steer · H horn · E get off";
@@ -248,6 +248,22 @@ async function main() {
       ` · drain: ${d.value}${tag(d.estimated)}`;
   };
 
+  const poseCharacter = () => {
+    if (!riding) {
+      // after a fall: lying on the back, then getting up over the last 0.5 s
+      const down = Math.min(1, downFor / 0.5);
+      character.root.rotation.order = "YXZ";
+      character.root.rotation.set(down * 1.45, -player.facing, 0);
+      character.root.position.set(player.x, player.z + down * 0.12, -player.y);
+    } else character.root.rotation.set(0, 0, 0);
+    character.animate({
+      speed: riding ? 0 : player.speed,
+      phase: player.phase,
+      t: clockT,
+      seated: riding,
+      airborne: player.z > 0.02,
+    });
+  };
   let framesDrawn = 0; // for tests: wait for real frames, not wall-clock time
   const clock = new THREE.Clock();
   const fpsEl = document.getElementById("fps")!;
@@ -258,15 +274,11 @@ async function main() {
     const dt = Math.min(clock.getDelta(), 0.1);
     // phones held upright show "turn sideways": the world waits until it is landscape
     if (!document.body.classList.contains("portrait")) step(dt, controls.read());
-    // models follow the game state
+    // models follow the game state (poseCharacter is defined below the loop)
     scooterModel.root.position.set(scooter.x, 0, -scooter.y);
     scooterModel.root.rotation.y = -scooter.heading;
-    scooterModel.pose(scooter.distance, scooter.lean);
-    if (!riding) {
-      character.root.position.set(player.x, player.z, -player.y);
-      character.root.rotation.y = -player.facing;
-    }
-    character.animate(player.speed, clockT, riding);
+    scooterModel.pose(scooter.distance, scooter.lean + scooter.wobble * Math.sin(clockT * 28));
+    poseCharacter();
     // first person: hide your own body (the camera is inside the head); seated eyes are lower than standing
     character.root.visible = view === "third";
     const seatH = riding ? (view === "first" ? -0.1 : 0.3) : player.z;
@@ -280,6 +292,12 @@ async function main() {
       riding ? ON_SCOOTER : ON_FOOT,
       collider.blocked,
     );
+    if (shake > 0.005)
+      camera.position.add(
+        new THREE.Vector3(Math.sin(clockT * 53), Math.sin(clockT * 41), Math.sin(clockT * 47)).multiplyScalar(
+          shake,
+        ),
+      );
     skyDome.position.copy(camera.position);
     // keep the sun's shadow area centred on the player, snapped to whole metres to avoid shimmering
     const cx = Math.round(player.x),
@@ -310,7 +328,58 @@ async function main() {
       fps,
       ...built.stats,
     }),
-    player: () => ({ x: player.x, y: player.y, z: player.z, yaw: look.yaw, facing: player.facing }),
+    player: () => ({
+      x: player.x,
+      y: player.y,
+      z: player.z,
+      yaw: look.yaw,
+      facing: player.facing,
+      speed: player.speed,
+      phase: player.phase,
+      walkMode,
+    }),
+    paces: () => ({ ...PACE }),
+    /**
+     * Move on open ground (no buildings) from standing, through segments of [seconds, input]: tests the movement
+     * on its own. Returns distance, speed every tenth of a second, and gait steps taken (two per cycle).
+     */
+    walkSim: (segments: [number, Input][], walk = false) => {
+      const p = newWalker(0, 0, 0);
+      const open = { move: (x: number, y: number, dx: number, dy: number): Pt => [x + dx, y + dy] };
+      const speeds: number[] = [];
+      let steps = 0,
+        i = 0;
+      for (const [seconds, input] of segments)
+        for (let t = 0; t < seconds - 1e-9; t += 1 / 60, i++) {
+          const ph = p.phase;
+          walkStep(p, 0, 1 / 60, input, walk, open);
+          steps += ((p.phase - ph + 2 * Math.PI) % (2 * Math.PI)) / Math.PI;
+          if (i % 6 === 5) speeds.push(p.speed);
+        }
+      return { distance: Math.hypot(p.x, p.y), speeds, steps };
+    },
+    /** Pose the character for the current state and report joints (feet in data coords, angles in radians). */
+    joints: () => {
+      poseCharacter();
+      character.root.updateMatrixWorld(true);
+      const v = new THREE.Vector3();
+      const at = (n: string) => {
+        character.bones[n]!.getWorldPosition(v);
+        return { x: v.x, y: -v.z, z: v.y };
+      };
+      const ang = (n: string) => character.bones[n]!.rotation.x;
+      return {
+        footL: at("footL"),
+        footR: at("footR"),
+        thighL: ang("thighL"),
+        thighR: ang("thighR"),
+        kneeL: ang("shinL"),
+        kneeR: ang("shinR"),
+        armL: ang("upperArmL"),
+        armR: ang("upperArmR"),
+        head: at("head"),
+      };
+    },
     riding: () => riding,
     view: () => view,
     scooter: () => ({ ...scooter, kmh: Math.abs(scooter.speed) * 3.6, maxKmh: SCOOTER.maxSpeed * 3.6 }),
@@ -320,17 +389,54 @@ async function main() {
      * Ride a copy of the scooter on open ground (no buildings) for `seconds`, starting at `kmh`:
      * tests the riding physics on their own. Returns speed (km/h), heading change and distance.
      */
-    rideSim: (seconds: number, throttle: number, steer: number, kmh = 0) => {
-      const s = newScooter(0, 0, 0);
+    rideSim: (
+      seconds: number,
+      throttle: number,
+      steer: number,
+      kmh = 0,
+      wall?: { y: number; heading: number },
+    ) => {
+      // optional test wall: the line y = wall.y (running east-west), approached at `heading`
+      const s = newScooter(0, 0, wall?.heading ?? 0);
       s.speed = kmh / 3.6;
-      const open = { move: (x: number, y: number, dx: number, dy: number): Pt => [x + dx, y + dy] };
+      const ground: Mover = wall
+        ? {
+            move: (x, y, dx, dy, r = 0.6): Pt => [x + dx, Math.min(y + dy, wall.y - r)],
+            normal: (_x, y, r) => (y >= wall.y - r - 1e-6 ? [0, -1] : null),
+          }
+        : { move: (x, y, dx, dy): Pt => [x + dx, y + dy] };
       let stopAt: number | null = null;
-      for (let t = 0; t < seconds - 1e-9; t += 1 / 60) {
-        rideStep(s, 1 / 60, throttle, steer, open);
-        if (stopAt === null && s.speed <= 0 && kmh > 0) stopAt = t + 1 / 60;
+      let stopDist: number | null = null;
+      const reach: Record<number, number> = {};
+      const hits: { impact: number; crashed: boolean }[] = [];
+      let maxY = -Infinity;
+      for (let t = 0; t < seconds - 1e-9; t += 1 / 120) {
+        const hit = rideStep(s, 1 / 120, throttle, steer, ground);
+        if (hit.hit) hits.push({ impact: hit.impact, crashed: hit.crashed });
+        maxY = Math.max(maxY, s.y);
+        for (const k of [40, 60, 80])
+          if (reach[k] === undefined && s.speed * 3.6 >= k) reach[k] = t + 1 / 120;
+        if (stopAt === null && s.speed <= 0 && kmh > 0 && throttle <= 0) {
+          stopAt = t + 1 / 120;
+          stopDist = Math.hypot(s.x, s.y);
+        }
       }
-      return { kmh: s.speed * 3.6, heading: s.heading, distance: Math.hypot(s.x, s.y), stoppedAfter: stopAt };
+      return {
+        kmh: s.speed * 3.6,
+        heading: s.heading,
+        x: s.x,
+        y: s.y,
+        maxY,
+        distance: Math.hypot(s.x, s.y),
+        stoppedAfter: stopAt,
+        stopDistance: stopDist,
+        reach,
+        hits,
+        fallen: s.fallen,
+      };
     },
+    crashes: () => crashes,
+    downFor: () => downFor,
     /** Put the parked scooter somewhere (tests). */
     placeScooter: (x: number, y: number, heading: number) => {
       Object.assign(scooter, newScooter(x, y, heading));
@@ -366,6 +472,7 @@ async function main() {
       player.x = x;
       player.y = y;
       player.facing = yaw;
+      player.vx = player.vy = player.speed = 0;
       look.yaw = yaw;
       look.pitch = 0;
     },
@@ -378,6 +485,7 @@ async function main() {
           use: first && !!input.use,
           horn: first && !!input.horn,
           view: first && !!input.view,
+          walk: first && !!input.walk,
         });
     },
     blocked: (x: number, y: number, r?: number) => collider.blocked(x, y, r),

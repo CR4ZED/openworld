@@ -1,10 +1,11 @@
 /**
  * Low-poly models built in code: the player character and a generic step-through scooter (no real brand).
  * Sizes are real-world (metres). Each rigid part is one merged mesh with vertex colours, all sharing one
- * material, so the character costs 5 draw calls and the scooter 3.
+ * material. The character is one skinned mesh (1 draw call); the scooter is 3.
  */
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { cycleLength } from "./player";
 
 const MODEL_MATERIAL = new THREE.MeshLambertMaterial({ vertexColors: true });
 
@@ -32,14 +33,27 @@ function part(name: string, pieces: THREE.BufferGeometry[]) {
   return m;
 }
 
-export interface Character {
-  root: THREE.Group;
-  /** Animate limbs: speed in m/s (0 = standing), t = running time in seconds. `seated` = sitting on the scooter. */
-  animate(speed: number, t: number, seated: boolean): void;
+export interface GaitPose {
+  speed: number; // ground speed m/s
+  phase: number; // gait phase (radians), from player.ts
+  t: number; // running time (s), for idle breathing
+  seated: boolean; // sitting on the scooter
+  airborne: boolean; // in a jump
 }
 
+export interface Character {
+  root: THREE.Group;
+  animate(g: GaitPose): void;
+  /** Joints by name (tests read foot positions and limb angles). */
+  bones: Record<string, THREE.Bone>;
+}
+
+const LEG = 0.87; // hip to ankle (m)
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
 /**
- * A young man from the colony: half-sleeve shirt, dark trousers, chappals. About 1.70 m tall.
+ * A young man from the colony: half-sleeve shirt, dark trousers, chappals. About 1.72 m tall.
+ * One skinned mesh with a skeleton (hips, spine, head, shoulders, elbows, hips, knees, ankles): one draw call.
  * The group's origin is between the feet; it faces -z (three.js forward).
  */
 export function makeCharacter(): Character {
@@ -48,54 +62,156 @@ export function makeCharacter(): Character {
   const SKIN = "#8d5a3b";
   const SHIRT = "#3f7cac";
   const TROUSERS = "#2e3440";
+  const HAIR = "#1b1b1b";
+  const SOLE = "#4a3426";
 
-  const hips = new THREE.Group();
-  hips.position.y = 0.92;
-  root.add(hips);
-  hips.add(
-    part("player-body", [
-      box(0.38, 0.55, 0.22, SHIRT, 0, 0.3, 0), // torso
-      box(0.2, 0.24, 0.22, SKIN, 0, 0.72, 0), // head
-      box(0.21, 0.07, 0.23, "#1b1b1b", 0, 0.86, 0.005), // hair
-      box(0.08, 0.06, 0.1, SKIN, 0, 0.6, 0), // neck
-    ]),
-  );
-
-  // a limb hangs from a pivot (hip or shoulder); upper and lower part in different colours
-  const limb = (name: string, x: number, y: number, upper: string, lower: string, len: number, w: number) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, y, 0);
-    const pieces = [
-      box(w, len * 0.55, w, upper, 0, -len * 0.275, 0),
-      box(w * 0.9, len * 0.45, w * 0.9, lower, 0, -len * 0.775, 0),
-    ];
-    if (name.startsWith("leg")) pieces.push(box(0.13, 0.03, 0.26, "#4a3426", 0, -len, -0.04)); // chappal
-    pivot.add(part(`player-${name}`, pieces));
-    return pivot;
+  // joints in model space (standing, arms down); each bone is placed relative to its parent
+  const list: THREE.Bone[] = [];
+  const bones: Record<string, THREE.Bone> = {};
+  const world: Record<string, THREE.Vector3> = {};
+  const bone = (name: string, parent: string | null, x: number, y: number, z = 0) => {
+    const b = new THREE.Bone();
+    b.name = name;
+    world[name] = new THREE.Vector3(x, y, z);
+    if (parent) {
+      b.position.copy(world[name]).sub(world[parent]!);
+      bones[parent]!.add(b);
+    } else b.position.copy(world[name]);
+    bones[name] = b;
+    list.push(b);
   };
-  const legL = limb("legL", -0.1, 0, TROUSERS, TROUSERS, 0.9, 0.14);
-  const legR = limb("legR", 0.1, 0, TROUSERS, TROUSERS, 0.9, 0.14);
-  const armL = limb("armL", -0.24, 0.55, SHIRT, SKIN, 0.62, 0.1);
-  const armR = limb("armR", 0.24, 0.55, SHIRT, SKIN, 0.62, 0.1);
-  hips.add(legL, legR, armL, armR);
+  bone("pelvis", null, 0, 0.92);
+  bone("spine", "pelvis", 0, 0.98);
+  bone("head", "spine", 0, 1.47);
+  for (const [side, sx] of [
+    ["L", -1],
+    ["R", 1],
+  ] as const) {
+    bone(`upperArm${side}`, "spine", sx * 0.235, 1.42);
+    bone(`forearm${side}`, `upperArm${side}`, sx * 0.235, 1.12);
+    bone(`thigh${side}`, "pelvis", sx * 0.1, 0.92);
+    bone(`shin${side}`, `thigh${side}`, sx * 0.1, 0.47);
+    bone(`foot${side}`, `shin${side}`, sx * 0.1, 0.05);
+  }
+
+  // body pieces in model space, each moving rigidly with one bone
+  const pieces: THREE.BufferGeometry[] = [];
+  const add = (boneName: string, g: THREE.BufferGeometry) => {
+    const n = g.getAttribute("position").count;
+    const idx = new Uint16Array(n * 4);
+    const wts = new Float32Array(n * 4);
+    const bi = list.indexOf(bones[boneName]!);
+    for (let i = 0; i < n; i++) {
+      idx[i * 4] = bi;
+      wts[i * 4] = 1;
+    }
+    g.setAttribute("skinIndex", new THREE.BufferAttribute(idx, 4));
+    g.setAttribute("skinWeight", new THREE.BufferAttribute(wts, 4));
+    pieces.push(g);
+  };
+  add("pelvis", box(0.34, 0.16, 0.21, TROUSERS, 0, 0.93, 0)); // hips
+  add("spine", box(0.37, 0.48, 0.21, SHIRT, 0, 1.22, 0)); // shirt
+  add("spine", box(0.2, 0.05, 0.12, SHIRT, 0, 1.47, 0)); // collar
+  add("head", box(0.08, 0.07, 0.09, SKIN, 0, 1.5, 0)); // neck
+  add("head", box(0.19, 0.23, 0.21, SKIN, 0, 1.61, 0)); // head
+  add("head", box(0.2, 0.06, 0.22, HAIR, 0, 1.73, 0.01)); // hair
+  add("head", box(0.04, 0.03, 0.02, SKIN, 0, 1.6, -0.115)); // nose
+  for (const [side, sx] of [
+    ["L", -1],
+    ["R", 1],
+  ] as const) {
+    const x = sx * 0.235;
+    add(`upperArm${side}`, box(0.12, 0.17, 0.12, SHIRT, x, 1.345, 0)); // half sleeve
+    add(`upperArm${side}`, box(0.085, 0.15, 0.085, SKIN, x, 1.19, 0)); // upper arm below the sleeve
+    add(`forearm${side}`, box(0.08, 0.25, 0.08, SKIN, x, 0.995, 0)); // forearm
+    add(`forearm${side}`, box(0.075, 0.1, 0.05, SKIN, x, 0.82, -0.005)); // hand
+    add(`thigh${side}`, box(0.15, 0.47, 0.16, TROUSERS, sx * 0.1, 0.69, 0)); // thigh
+    add(`shin${side}`, box(0.13, 0.43, 0.13, TROUSERS, sx * 0.1, 0.265, 0)); // shin
+    add(`foot${side}`, box(0.09, 0.05, 0.2, SKIN, sx * 0.1, 0.045, -0.05)); // foot
+    add(`foot${side}`, box(0.11, 0.02, 0.26, SOLE, sx * 0.1, 0.01, -0.05)); // chappal
+  }
+  const mesh = new THREE.SkinnedMesh(mergeGeometries(pieces, false)!, MODEL_MATERIAL);
+  mesh.name = "player-body";
+  mesh.castShadow = true;
+  mesh.frustumCulled = false; // posed limbs move outside the standing bounds
+  mesh.add(bones.pelvis!);
+  mesh.updateMatrixWorld(true);
+  mesh.bind(new THREE.Skeleton(list));
+  root.add(mesh);
+
+  const b = bones as Record<string, THREE.Bone> & {
+    pelvis: THREE.Bone;
+    spine: THREE.Bone;
+    head: THREE.Bone;
+  };
+  const pelvisY = world.pelvis!.y;
+
+  const reset = () => {
+    for (const bn of list) bn.rotation.set(0, 0, 0);
+    b.pelvis.position.set(0, pelvisY, 0);
+  };
 
   return {
     root,
-    animate(speed, t, seated) {
+    bones,
+    animate({ speed, phase, t, seated, airborne }) {
+      reset();
       if (seated) {
-        // sitting on the seat (0.79 m): thighs forward, hands forward on the handlebar
-        hips.position.y = 0.8;
-        legL.rotation.x = legR.rotation.x = 0.7; // feet forward on the floorboard
-        armL.rotation.x = armR.rotation.x = 1.2; // hands on the handlebar
+        // sitting on the seat: thighs forward, shins down to the floorboard, leaning to the handlebar
+        b.pelvis.position.y = 0.85;
+        b.spine.rotation.x = -0.3;
+        b.head.rotation.x = 0.25;
+        for (const s of ["L", "R"]) {
+          bones[`thigh${s}`]!.rotation.x = 1.5;
+          bones[`shin${s}`]!.rotation.x = -1.35;
+          bones[`foot${s}`]!.rotation.x = -0.15;
+          bones[`upperArm${s}`]!.rotation.x = 1.3;
+          bones[`forearm${s}`]!.rotation.x = 0.15;
+        }
         return;
       }
-      const phase = t * (4 + speed * 1.6);
-      const swing = Math.min(1, speed / 4) * 0.6 * Math.sin(phase);
-      legL.rotation.x = swing;
-      legR.rotation.x = -swing;
-      armL.rotation.x = -swing * 0.8;
-      armR.rotation.x = swing * 0.8;
-      hips.position.y = 0.92 + Math.abs(Math.sin(phase)) * 0.03 * Math.min(1, speed);
+      const w = clamp01(speed / 1.0); // how much of a gait (0 standing .. 1 moving)
+      const run = clamp01((speed - 2.2) / 1.8); // walk -> run blend
+      // thigh swing chosen so the stance foot stays planted: ground speed of the foot = 0 at mid-stance
+      const A = Math.min(0.85, cycleLength(speed) / (2 * Math.PI * LEG)) * w;
+      const legs: [string, number][] = [
+        ["L", phase],
+        ["R", phase + Math.PI],
+      ];
+      for (const [s, ph] of legs) {
+        const thigh = A * Math.sin(ph);
+        // the knee folds in early swing (foot lifts clear), stays nearly straight while carrying weight
+        const knee = -(0.06 + 0.25 * run + (0.85 + 0.75 * run) * Math.max(0, Math.cos(ph + 0.5))) * w;
+        bones[`thigh${s}`]!.rotation.x = thigh;
+        bones[`shin${s}`]!.rotation.x = knee;
+        bones[`foot${s}`]!.rotation.x = -(thigh + knee) * 0.85; // sole roughly level with the ground
+      }
+      // arms swing opposite the legs, elbows bend more when running
+      const armSwing = (0.55 + 0.6 * run) * A;
+      bones.upperArmL!.rotation.x = -armSwing * Math.sin(phase);
+      bones.upperArmR!.rotation.x = armSwing * Math.sin(phase);
+      bones.upperArmL!.rotation.z = -0.07;
+      bones.upperArmR!.rotation.z = 0.07;
+      const elbow = 0.18 + (0.2 + 1.1 * run) * w;
+      bones.forearmL!.rotation.x = elbow;
+      bones.forearmR!.rotation.x = elbow;
+      // hips twist with the stride, shoulders twist back, head keeps looking ahead; lean in when running
+      const twist = 0.1 * Math.sin(phase) * w;
+      b.pelvis.rotation.y = twist;
+      b.spine.rotation.y = -twist * 1.8;
+      b.head.rotation.y = twist * 0.8;
+      b.pelvis.rotation.z = 0.035 * Math.cos(phase) * w * (1 - run);
+      b.spine.rotation.x = -(0.04 + 0.2 * run) * w + 0.012 * Math.sin(t * 1.7) * (1 - w);
+      // up-and-down: walkers are highest over the standing leg, runners lowest (they spring off it)
+      const bob = Math.cos(2 * phase) * (0.018 * (1 - run) - 0.035 * run) * w;
+      b.pelvis.position.y = pelvisY - (0.015 + 0.04 * run) * w + bob;
+      if (airborne) {
+        for (const s of ["L", "R"]) {
+          bones[`thigh${s}`]!.rotation.x += 0.35;
+          bones[`shin${s}`]!.rotation.x -= 0.6;
+          bones[`upperArm${s}`]!.rotation.x += 0.4;
+        }
+      }
     },
   };
 }

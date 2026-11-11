@@ -8,6 +8,7 @@ export interface Input {
   use?: boolean; // true once per press of E / the Ride button: get on or off the scooter
   horn?: boolean; // true once per press of H / the Horn button
   view?: boolean; // true once per press of V: switch third person / first person
+  walk?: boolean; // true once per press of C: switch walking / jogging
 }
 
 export interface Look {
@@ -22,12 +23,13 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
   if (isTouch) document.body.classList.add("touch");
 
   // one-shot actions: set on press, cleared when read (holding a key doesn't repeat the action)
-  const pressed = { jump: false, use: false, horn: false, view: false };
+  const pressed = { jump: false, use: false, horn: false, view: false, walk: false };
   const KEY_ACTIONS: Record<string, keyof typeof pressed> = {
     Space: "jump",
     KeyE: "use",
     KeyH: "horn",
     KeyV: "view",
+    KeyC: "walk",
   };
   addEventListener("keydown", (e) => {
     keys.add(e.code);
@@ -129,11 +131,12 @@ export function makeControls(canvas: HTMLCanvasElement, look: Look) {
     const forward = k("KeyW") + k("ArrowUp") - k("KeyS") - k("ArrowDown") - stick.y;
     const strafe = k("KeyD") + k("ArrowRight") - k("KeyA") - k("ArrowLeft") + stick.x;
     const once = { ...pressed };
-    pressed.jump = pressed.use = pressed.horn = pressed.view = false;
+    pressed.jump = pressed.use = pressed.horn = pressed.view = pressed.walk = false;
     return {
       forward: Math.max(-1, Math.min(1, forward)),
       strafe: Math.max(-1, Math.min(1, strafe)),
-      run: keys.has("ShiftLeft") || keys.has("ShiftRight") || Math.hypot(stick.x, stick.y) > 0.95,
+      // Shift sprints; on phones the joystick walks when pushed lightly and jogs when pushed fully
+      run: keys.has("ShiftLeft") || keys.has("ShiftRight"),
       ...once,
     };
   };

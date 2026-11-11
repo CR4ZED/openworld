@@ -54,9 +54,17 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Player and scooter (2026-11-11, Benglooru-style roadmap step 1): third-person camera by default (pulls in so it
   never enters a building), V = first person. Generic step-through scooter (no real brand), parked on the start
   lane: E / Ride button gets on and off (only below 2 m/s), W/S throttle-brake, A/D steer, H / Horn button.
-  Real-world riding numbers, capped at 45 km/h for colony lanes; cannot ride through buildings. Models are merged
-  per rigid part with one vertex-colour material (character 5 draw calls, scooter 3). Riding physics are tested on
-  open ground via `__GAME__.rideSim`; live checks wait for real frames (`__GAME__.frames()`), not fixed timeouts.
+  Riding physics are tested on open ground and against a test wall via `__GAME__.rideSim`; live checks wait for
+  real frames (`__GAME__.frames()`), not fixed timeouts.
+- Scooter numbers (owner 2026-11-11: "45 km/h max is not true"): match a real 110 cc scooter road test (Autocar
+  India, Activa 110): 85 km/h top, 0-40 3.6 s, 0-60 8.1 s, 0-80 18.1 s, 60-0 in 18.4 m. Tests hold these.
+- Crashes (owner 2026-11-11: "no physics when it hits a wall, speed drops to 0"): glancing hits scrape along the
+  wall keeping most speed; slow head-on bumps bounce back; more than 20 km/h straight into a wall knocks the
+  scooter over and throws the rider off (lies down ~1.6 s, E picks the scooter up). Never ends up inside a wall.
+- On foot (owner 2026-11-11: "walks like a robot, very slow"): default pace is an easy jog 3.5 m/s, C = walk
+  1.6, Shift = sprint 6.0; quick start/stop. The character is one skinned mesh with a skeleton (knees, elbows,
+  hips, shoulders; 1 draw call). Gait phase follows ground covered so feet stay planted; tests check planted
+  feet, knee bend, arm swing opposite the legs, and natural cadence (walk ~1.8, jog ~2.5, sprint ~3 steps/s).
 - Phones play in landscape (owner, 2026-10-30). Android: Play button -> fullscreen + orientation lock. iPhone Safari
   cannot lock orientation, so portrait shows a full-screen "turn your phone sideways" prompt and the world waits.
   Tests run the phone in landscape and check the portrait prompt.
@@ -85,6 +93,9 @@ Reference docs (owner-maintained): "World realism and scaling spec" and "Testing
 - Survey fields are defined once in `data/survey/street_survey_schema.json`, shared by the form and the importer.
 
 ## Lessons learned
+
+- 2026-11-11: the first frame can have a zero time step; speed = distance / 0 made the gait phase NaN and froze
+  the legs. Movement steps now ignore dt <= 0, and a test checks speed and phase are real numbers after loading.
 
 - 2026-11-11: the desktop test browser can draw under 5 fps, so a 200 ms wait sometimes saw an old frame (stale
   camera/prompt). Wait for frames drawn (`__GAME__.frames()`) instead. Also the help line ran under the map credits
